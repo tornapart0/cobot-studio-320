@@ -21,7 +21,7 @@ def angles(values):
 @dataclass(frozen=True)
 class Move:
     target: tuple
-    speed: int = 5
+    speed: int = 10
 
     def __post_init__(self):
         object.__setattr__(self, 'target', angles(self.target))
