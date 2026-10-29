@@ -34,11 +34,16 @@ class Controller:
             raise ValueError('Connect the arm first.')
         return angles(self.robot.get_angles())
 
-    def run(self, plan, cancel, report=lambda q: None):
+    def run(self, plan, cancel, report=lambda q: None, required_start=None):
         """Wait for measured arrival, abort on timeout or cancellation."""
         if not self.robot:
             raise ValueError('Connect the arm first.')
         try:
+            if required_start is not None:
+                expected = angles(required_start)
+                measured = self.read()
+                if max(abs(a-b) for a,b in zip(measured, expected)) > 2:
+                    raise ValueError('Arm is not at start A (within 2°). Move to A separately, then push the route.')
             for command in plan:
                 if cancel.is_set():
                     break

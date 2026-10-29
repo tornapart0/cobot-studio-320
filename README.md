@@ -2,7 +2,7 @@
 
 An original local desktop workbench for **Elephant Robotics myCobot 320 M5**, designed for a Mac connected by USB. Write short Python-style motion commands, preview joint trajectories, train a small reinforcement learning policy, and explicitly run reviewed plans on the arm.
 
-**Status: v0.2.0-beta.2 — working prototype, tested with simulated hardware. Real-arm validation is still required.** No robot was connected during development. No pretrained task policy is included.
+**Status: v0.2.0-beta.3 — working prototype, tested with simulated hardware. Real-arm validation is still required.** No robot was connected during development. No pretrained task policy is included.
 
 ## Start on your Mac
 
@@ -27,7 +27,7 @@ Sliders affect only the preview. **Add to script** records the target, while **P
 
 The right side has three tabs:
 
-- **Train & simulate**: set a target with the sliders, train/load a policy, then animate the generated trajectory and push its script.
+- **Train & simulate**: adjust sliders and select **Set start A**, then adjust again and select **Set end B**. **Train this route** learns on these exact poses. **Simulate A → B** animates from A and places the route in the script editor. **Move arm to start A** is a separate, confirmed movement; **Push trained A → B** reads live feedback and requires the real arm to be within 2° per joint of A. Changing a saved endpoint invalidates the previous policy. Show A/B restores either saved pose to the sliders. Saving a policy includes both endpoints; loading it restores them.
 - **Script**: edit simple Python commands, animate them in the arm viewer, save/open scripts, and send a reviewed script.
 - **Connect**: USB port, firmware baud rate, connect/read, and disconnect.
 
@@ -37,7 +37,7 @@ The right side has three tabs:
 
 1. Start disconnected. Open `examples/small_move.py` or write a plan.
 2. Click **Simulate** in the Script tab to validate and animate all six joint angles. The preview begins at zero while disconnected, or the last measured pose while connected.
-3. In **Train & simulate**, set a target with the sliders, train or load a JSON policy, and select **Simulate trained policy** to generate a Python plan. Save the policy and plan if desired.
+3. In **Train & simulate**, capture A and B from the sliders, select **Train this route**, then **Simulate A → B**. Save the policy and plan if desired.
 4. Mount and power your M5 according to its manual. Connect USB, select its `/dev/cu.*` device, and choose the baud rate matching its firmware. The default here is 115200; do not assume that it matches every revision.
 5. **Connect / read** reads joint feedback without issuing a move or enabling power. It fails closed if feedback is invalid. Install the correct vendor serial-control firmware using myStudio if needed; this app does not flash firmware.
 6. Review the measured starting pose and the complete trajectory. Clear the workspace and keep the physical emergency stop accessible. Check the acknowledgment and select **Push script to arm**. A confirmation precedes motion.
@@ -77,7 +77,7 @@ The hardware adapter reads feedback before each move, rejects steps over 10°, w
 
 ## What the RL feature does
 
-This is a small, reproducible reward-driven random-search baseline. It optimizes six proportional feedback gains on eight generated joint-reaching tasks. Observations are joint error, actions are increments capped to ±2° per step, and reward penalizes squared joint error and action magnitude. `rollout()` is a deterministic joint-space integrator. It has **no gravity, torque, link geometry, contact, payload, latency or collision model**.
+This is a small, reproducible reward-driven random-search baseline. The GUI optimizes six proportional feedback gains for your captured A → B route. The Python training API also supports a generic baseline trained on eight generated tasks when no endpoints are supplied. Observations are joint error, actions are increments capped to ±2° per step, and reward penalizes squared joint error and action magnitude. `rollout()` is a deterministic joint-space integrator. It has **no gravity, torque, link geometry, contact, payload, latency or collision model**.
 
 The trained policy generates a bounded, finite joint trajectory which you can inspect and run through the same USB adapter. On hardware, the generated waypoints are replayed with measured-arrival checks; the simulated timing is not preserved. This is an educational sim-to-hardware workflow, **not validated physical sim-to-real transfer**. Save/load uses plain JSON with schema and numeric validation, not pickle or executable model files.
 

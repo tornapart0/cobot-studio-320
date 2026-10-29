@@ -18,9 +18,20 @@ assert app.animation is None
 assert app.frames
 assert app.controller.robot is None
 assert not app.armed.get()
-app.policy = {'schema': 'cobot-joint-gains-v1', 'gains': [0.5]*6}
+from cobot_studio.rl import train
+app.set_pose((-20, 0, 0, 0, 0, 0))
+app.capture_pose('start')
+app.set_pose((40, 10, -10, 0, 0, 0))
+app.capture_pose('goal')
+app.policy = train(start=app.route_start, goal=app.route_goal)[0]
 app.generate()
-assert len(app.plan()) == 60
+assert app.frames[0] == app.route_start
+assert app.frames[-1] == app.route_goal
+assert app.plan()[0].target == app.route_start
+assert app.plan()[-1].target == app.route_goal
+app.set_pose((45, 10, -10, 0, 0, 0))
+app.capture_pose('goal')
+assert app.policy is None
 root.update()
 root.destroy()
 print('Desktop UI smoke check passed; no serial connection opened.')

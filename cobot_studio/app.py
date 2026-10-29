@@ -26,6 +26,8 @@ class App:
         self.cancel = threading.Event()
         self.busy = False
         self.policy = None
+        self.route_start = None
+        self.route_goal = None
         self.current = (0,)*6
         self.frames = []
         self.animation = None
@@ -36,7 +38,8 @@ class App:
         self.status = tk.StringVar(value='Simulation · disconnected')
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value='115200')
-        self.goal = tk.StringVar(value='10, -10, 10, 0, 0, 0')
+        self.start_label = tk.StringVar(value='A: not set')
+        self.end_label = tk.StringVar(value='B: not set')
         self.armed = tk.BooleanVar(value=False)
         self.pose_vars = [tk.DoubleVar(value=0) for _ in range(6)]
         self.pose_labels = [tk.StringVar(value='0°') for _ in range(6)]
@@ -114,19 +117,26 @@ class App:
         tabs.add(sim, text='Train & simulate')
         tabs.add(scripting, text='Script')
         tabs.add(connection, text='Connect')
-        ttk.Label(sim, text='1. Set a target', style='Heading.TLabel').pack(anchor='w')
-        ttk.Label(sim, text='Adjust the joint sliders beside the arm.').pack(anchor='w', pady=(6, 18))
-        ttk.Label(sim, text='2. Train a policy', style='Heading.TLabel').pack(anchor='w')
-        ttk.Label(sim, text='Learn a joint-reaching controller in the simplified simulation.',
-                  wraplength=350).pack(anchor='w', pady=6)
-        ttk.Button(sim, text='Train policy', command=self.train).pack(anchor='w', pady=6)
-        self.reward = tk.StringVar(value='No policy yet.')
+        ttk.Label(sim, text='1. Set start A and end B', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(sim, text='Adjust the sliders, then capture each pose.', wraplength=350).pack(anchor='w', pady=6)
+        poses = ttk.Frame(sim)
+        poses.pack(fill='x', pady=6)
+        ttk.Button(poses, text='Set start A', command=lambda: self.capture_pose('start')).pack(side='left')
+        ttk.Button(poses, text='Set end B', command=lambda: self.capture_pose('goal')).pack(side='left', padx=6)
+        ttk.Label(sim, textvariable=self.start_label, wraplength=350).pack(anchor='w', pady=3)
+        ttk.Label(sim, textvariable=self.end_label, wraplength=350).pack(anchor='w', pady=3)
+        show = ttk.Frame(sim)
+        show.pack(fill='x', pady=6)
+        ttk.Button(show, text='Show A', command=lambda: self.show_pose('start')).pack(side='left')
+        ttk.Button(show, text='Show B', command=lambda: self.show_pose('goal')).pack(side='left', padx=6)
+        ttk.Label(sim, text='2. Train A → B', style='Heading.TLabel').pack(anchor='w', pady=(14, 4))
+        ttk.Button(sim, text='Train this route', command=self.train).pack(anchor='w', pady=6)
+        self.reward = tk.StringVar(value='Set both poses to begin.')
         ttk.Label(sim, textvariable=self.reward, wraplength=350).pack(anchor='w', pady=6)
-        ttk.Label(sim, text='3. Simulate to target', style='Heading.TLabel').pack(anchor='w', pady=(18, 6))
-        ttk.Label(sim, text='Generate a script from the learned policy and play it in the 3D view.',
-                  wraplength=350).pack(anchor='w', pady=6)
-        ttk.Button(sim, text='Simulate trained policy', command=self.simulate_policy).pack(anchor='w', pady=6)
-        ttk.Button(sim, text='Push generated script…', command=self.run_arm).pack(anchor='w', pady=6)
+        ttk.Label(sim, text='3. Preview and push', style='Heading.TLabel').pack(anchor='w', pady=(14, 4))
+        ttk.Button(sim, text='Simulate A → B', command=self.simulate_policy).pack(anchor='w', pady=4)
+        ttk.Button(sim, text='Move arm to start A…', command=self.move_to_start).pack(anchor='w', pady=4)
+        ttk.Button(sim, text='Push trained A → B…', command=self.push_route).pack(anchor='w', pady=4)
         files = ttk.Frame(sim)
         files.pack(fill='x', pady=18)
         ttk.Button(files, text='Load policy', command=self.load_policy).pack(side='left')
@@ -196,9 +206,54 @@ class App:
     def push_target(self):
         self.guard(lambda: self.send_plan(target_plan(self.current, self.target_pose())))
 
+    def capture_pose(self, which):
+        def capture():
+            if self.busy:
+                raise ValueError('Wait for training or movement to finish before changing A or B.')
+            setattr(self, 'route_'+which, self.target_pose())
+            self.policy = None
+            self.reward.set('Poses changed. Train this route before pushing.')
+            self.update_pose_labels()
+        self.guard(capture)
+
+    def update_pose_labels(self):
+        for label, pose, name in [(self.start_label, self.route_start, 'A'),
+                                  (self.end_label, self.route_goal, 'B')]:
+            label.set(f'{name}: '+(', '.join(f'{v:g}°' for v in pose) if pose is not None else 'not set'))
+
+    def show_pose(self, which):
+        def show():
+            pose = getattr(self, 'route_'+which)
+            if pose is None:
+                raise ValueError('Set this pose with the sliders first.')
+            self.set_pose(pose)
+        self.guard(show)
+
+    def route(self):
+        if self.route_start is None or self.route_goal is None:
+            raise ValueError('Set both start A and end B with the sliders first.')
+        return self.route_start, self.route_goal
+
+    def trained_route(self):
+        start, goal = self.route()
+        if not self.policy or self.policy.get('start') != list(start) or self.policy.get('goal') != list(goal):
+            raise ValueError('Train a policy for these exact A and B poses first.')
+        return policy_plan(self.policy, start, goal)
+
     def simulate_policy(self):
-        self.goal.set(', '.join(str(v) for v in self.target_pose()))
         self.generate()
+
+    def move_to_start(self):
+        def move():
+            start, _ = self.route()
+            self.send_plan(target_plan(self.current, start))
+        self.guard(move)
+
+    def push_route(self):
+        def push():
+            plan = self.trained_route()
+            self.send_plan(plan, required_start=self.route_start)
+        self.guard(push)
 
     def animate(self, index=0):
         self.animation = None
@@ -286,14 +341,26 @@ class App:
         self.animate()
 
     def train(self):
-        self.guard(lambda: self.task(lambda: train()[0]))
+        def begin():
+            start, goal = self.route()
+            self.reward.set('Training A → B…')
+            self.task(lambda: train(start=start, goal=goal)[0])
+        self.guard(begin)
 
     def load_policy(self):
         def load():
             path = filedialog.askopenfilename(filetypes=[('JSON policy', '*.json')])
             if path:
+                if self.busy:
+                    raise ValueError('Wait for the current operation to finish.')
                 self.policy = load_policy(path)
-                self.reward.set('Policy loaded. Generate a trajectory to inspect it.')
+                if 'start' in self.policy:
+                    self.route_start = angles(self.policy['start'])
+                    self.route_goal = angles(self.policy['goal'])
+                    self.update_pose_labels()
+                    self.reward.set('A → B policy loaded. Simulate before pushing.')
+                else:
+                    self.reward.set('Legacy policy has no saved A/B. Set poses and train this route.')
         self.guard(load)
 
     def save_policy(self):
@@ -305,14 +372,13 @@ class App:
 
     def generate(self):
         def generate():
-            if not self.policy:
-                raise ValueError('Train or load a policy first.')
-            target = angles([float(x.strip()) for x in self.goal.get().split(',')])
-            plan = policy_plan(self.policy, self.current, target)
+            plan = self.trained_route()
             self.editor.delete('1.0', 'end')
-            self.editor.insert('1.0', program(plan))
-            self.preview()
-            self.note('Policy trajectory placed in Python editor.')
+            # The script includes A explicitly so it preserves the route's start.
+            self.editor.insert('1.0', program([Move(self.route_start, 5)] + plan))
+            self.frames = preview(plan, self.route_start)
+            self.draw()
+            self.note('Trained A → B route simulated and saved in the script editor.')
         self.guard(generate)
 
     def open_program(self):
@@ -340,7 +406,7 @@ class App:
                                        'start': self.current, 'frames': frames}, indent=2), '.json')
         self.guard(save)
 
-    def send_plan(self, plan):
+    def send_plan(self, plan, required_start=None):
         if self.busy:
             raise ValueError('Wait for the current operation, or press STOP.')
         if not self.controller.robot or not self.armed.get():
@@ -352,7 +418,7 @@ class App:
             self.root.after_cancel(self.animation)
             self.animation = None
         self.playback = False
-        self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q))))
+        self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q)), required_start=required_start))
 
     def run_arm(self):
         self.guard(lambda: self.send_plan(self.plan()))

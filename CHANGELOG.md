@@ -1,6 +1,12 @@
 # Changes
 
-## Unreleased
+## v0.2.0-beta.3
+
+- Capture start A and end B with sliders, train on that exact route, simulate and push it.
+- Save/load policies with endpoints; endpoint edits invalidate old training.
+- Separate confirmed move to A, and fresh measured-start check before route execution.
+
+## Viewer improvement
 
 - Solid green ground plane with a visible border and subtle grid for clearer 3D perspective.
 
