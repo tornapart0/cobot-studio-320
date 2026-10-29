@@ -41,22 +41,33 @@ class App:
         self.pose_vars = [tk.DoubleVar(value=0) for _ in range(6)]
         self.pose_labels = [tk.StringVar(value='0°') for _ in range(6)]
         style = ttk.Style(root)
-        # Standard Tk controls and system fonts, with a small green/white palette.
+        # Keep standard controls and default fonts; use green accents on black.
         style.theme_use('clam')
-        root.configure(background='white')
-        style.configure('.', background='white', foreground='#183b28')
-        style.configure('TFrame', background='white')
-        style.configure('TLabel', background='white')
-        style.configure('TNotebook', background='white', borderwidth=0)
-        style.configure('TNotebook.Tab', background='#eef5ef', padding=(12, 7))
-        style.map('TNotebook.Tab', background=[('selected', '#d8ecdd')])
-        style.configure('TButton', background='#e5f1e8', bordercolor='#aac7b1')
-        style.map('TButton', background=[('active', '#cfe6d5'), ('pressed', '#bedbc6')])
-        style.configure('TScale', background='white', troughcolor='#dceade')
-        style.configure('TCheckbutton', background='white')
-        style.map('TCheckbutton', background=[('active', 'white')])
-        style.configure('TEntry', fieldbackground='white')
-        style.configure('TCombobox', fieldbackground='white')
+        root.configure(background='#090d0a')
+        root.option_add('*TCombobox*Listbox.background', '#111b14')
+        root.option_add('*TCombobox*Listbox.foreground', '#b8edc8')
+        root.option_add('*TCombobox*Listbox.selectBackground', '#285d39')
+        style.configure('.', background='#090d0a', foreground='#c7e8d1',
+                        bordercolor='#2b4935', lightcolor='#2b4935', darkcolor='#090d0a',
+                        selectbackground='#285d39', selectforeground='#e1f7e7')
+        style.configure('TFrame', background='#090d0a')
+        style.configure('TLabel', background='#090d0a')
+        style.configure('TNotebook', background='#090d0a', borderwidth=0)
+        style.configure('TNotebook.Tab', background='#111b14', padding=(12, 7))
+        style.map('TNotebook.Tab', background=[('selected', '#234e30'), ('active', '#1b3523')],
+                  foreground=[('selected', '#d6f6df')])
+        style.configure('TButton', background='#173b23', bordercolor='#365e42')
+        style.map('TButton', background=[('pressed', '#2f6e42'), ('active', '#245632')],
+                  foreground=[('disabled', '#66816e')])
+        style.configure('TScale', background='#090d0a', troughcolor='#1c3424')
+        style.configure('TCheckbutton', background='#090d0a', indicatorbackground='#111b14')
+        style.map('TCheckbutton', background=[('active', '#090d0a')],
+                  indicatorbackground=[('selected', '#58b978')])
+        style.configure('TEntry', fieldbackground='#111b14', insertcolor='#b8edc8')
+        style.configure('TCombobox', fieldbackground='#111b14', background='#173b23',
+                        arrowcolor='#8cdaa5')
+        style.map('TCombobox', fieldbackground=[('readonly', '#111b14')],
+                  foreground=[('readonly', '#c7e8d1')])
         outer = ttk.Frame(root, padding=16)
         outer.pack(fill='both', expand=True)
         header = ttk.Frame(outer)
@@ -125,7 +136,7 @@ class App:
 
         ttk.Label(scripting, text='Motion script', style='Heading.TLabel').pack(anchor='w')
         ttk.Label(scripting, text='robot.move([six angles], speed)\nrobot.wait(seconds)').pack(anchor='w', pady=8)
-        self.editor = tk.Text(scripting, height=14, width=35, undo=True, wrap='none', background='white', foreground='#183b28', insertbackground='#183b28')
+        self.editor = tk.Text(scripting, height=14, width=35, undo=True, wrap='none', background='#0d1510', foreground='#c7e8d1', insertbackground='#8cdaa5', selectbackground='#285d39', selectforeground='#e1f7e7')
         self.editor.pack(fill='both', expand=True)
         self.editor.insert('1.0', EXAMPLE)
         row = ttk.Frame(scripting)
@@ -152,7 +163,7 @@ class App:
         footer.pack(fill='x', pady=(14, 4))
         ttk.Checkbutton(footer, text='Workspace clear · physical stop ready', variable=self.armed).pack(side='left')
         ttk.Button(footer, text='STOP', command=self.stop).pack(side='right')
-        self.log = tk.Text(outer, height=3, state='disabled', wrap='word', background='#f4f8f4', foreground='#183b28')
+        self.log = tk.Text(outer, height=3, state='disabled', wrap='word', background='#0d1510', foreground='#9cc9a9')
         self.log.pack(fill='x', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)

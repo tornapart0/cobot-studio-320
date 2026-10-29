@@ -1,5 +1,10 @@
 # Changes
 
+## v0.2.0-beta.2
+
+- Green and black theme across the 3D view, controls, script editor and log.
+- Retains system default fonts and the existing motion workflow.
+
 ## v0.2.0-beta.1
 
 - Simpler green and white interface using standard controls and system fonts.

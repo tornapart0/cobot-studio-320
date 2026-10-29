@@ -2,7 +2,7 @@
 
 An original local desktop workbench for **Elephant Robotics myCobot 320 M5**, designed for a Mac connected by USB. Write short Python-style motion commands, preview joint trajectories, train a small reinforcement learning policy, and explicitly run reviewed plans on the arm.
 
-**Status: v0.2.0-beta.1 — working prototype, tested with simulated hardware. Real-arm validation is still required.** No robot was connected during development. No pretrained task policy is included.
+**Status: v0.2.0-beta.2 — working prototype, tested with simulated hardware. Real-arm validation is still required.** No robot was connected during development. No pretrained task policy is included.
 
 ## Start on your Mac
 
@@ -19,7 +19,7 @@ After cloning/downloading, you can also double-click `Launch.command`. If macOS 
 
 ## Interface
 
-The interface uses a simple green and white palette, standard controls and system default fonts.
+The interface uses a simple green and black palette, standard controls and system default fonts.
 
 The left side has an interactive 3D arm schematic and six labeled joint sliders. Drag the view to orbit; scroll to zoom. Joint colors match the on-arm labels and angle legend. The tool orientation marker shows wrist rotation. This is original illustrative geometry, **not calibrated forward kinematics or collision detection**.
 
