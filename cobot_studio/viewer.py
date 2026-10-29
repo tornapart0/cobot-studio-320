@@ -83,10 +83,15 @@ class ArmViewer(tk.Canvas):
             return
         self.create_text(20, 22, text='Arm preview', fill='#c7e8d1', anchor='w', font='TkDefaultFont')
         self.create_text(20, 45, text='Drag to orbit · scroll to zoom', fill='#90b69b', anchor='w', font='TkDefaultFont')
+        # Filled ground surface shares the same perspective as the arm.
+        floor = [self.camera(point) for point in
+                 [(-200, -200, 0), (250, -200, 0), (250, 250, 0), (-200, 250, 0)]]
+        self.create_polygon([value for point in floor for value in point[:2]],
+                            fill='#162b1d', outline='#4c7959', width=2)
         for value in range(-200, 251, 50):
             for a, b in [((value, -200, 0), (value, 250, 0)), ((-200, value, 0), (250, value, 0))]:
                 p, q = self.camera(a), self.camera(b)
-                self.create_line(p[:2], q[:2], fill='#193023')
+                self.create_line(p[:2], q[:2], fill='#25432e')
         base = [self.camera(p) for p in [(-35,-35,0),(35,-35,0),(35,35,0),(-35,35,0)]]
         self.create_polygon([v for p in base for v in p[:2]], fill='#172a1e', outline='#568366', width=2)
         points = [self.camera(p) for p in joint_points(self.pose)]

@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased
+
+- Solid green ground plane with a visible border and subtle grid for clearer 3D perspective.
+
 ## v0.2.0-beta.2
 
 - Green and black theme across the 3D view, controls, script editor and log.
