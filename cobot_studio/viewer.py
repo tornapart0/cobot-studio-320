@@ -5,7 +5,7 @@ Link sizes/axes are illustrative, not calibrated myCobot kinematics.
 import math
 import tkinter as tk
 
-COLORS = ('#41c9cc', '#54a9ef', '#9b91ee', '#ecac65', '#e68598', '#76c998')
+COLORS = ('#1d5637', '#296744', '#367851', '#286440', '#3d7350', '#215a38')
 NAMES = ('Base', 'Shoulder', 'Elbow', 'Wrist 1', 'Wrist 2', 'Tool')
 
 
@@ -38,7 +38,7 @@ def joint_points(angles):
 
 class ArmViewer(tk.Canvas):
     def __init__(self, parent):
-        super().__init__(parent, background='#101b2a', highlightthickness=0)
+        super().__init__(parent, background='#ffffff', highlightthickness=0)
         self.pose = (0,)*6
         self.yaw, self.pitch, self.zoom = -35, 18, 1.0
         self.drag = None
@@ -81,35 +81,35 @@ class ArmViewer(tk.Canvas):
         w, h = self.winfo_width(), self.winfo_height()
         if w < 10 or h < 10:
             return
-        self.create_text(20, 22, text='ARM PREVIEW', fill='#e6edf6', anchor='w', font=('Helvetica', 11, 'bold'))
-        self.create_text(20, 45, text='Drag to orbit · scroll to zoom', fill='#91a5bb', anchor='w', font=('Helvetica', 11))
+        self.create_text(20, 22, text='Arm preview', fill='#183b28', anchor='w', font='TkDefaultFont')
+        self.create_text(20, 45, text='Drag to orbit · scroll to zoom', fill='#526c5b', anchor='w', font='TkDefaultFont')
         for value in range(-200, 251, 50):
             for a, b in [((value, -200, 0), (value, 250, 0)), ((-200, value, 0), (250, value, 0))]:
                 p, q = self.camera(a), self.camera(b)
-                self.create_line(p[:2], q[:2], fill='#203246')
+                self.create_line(p[:2], q[:2], fill='#e1eae3')
         base = [self.camera(p) for p in [(-35,-35,0),(35,-35,0),(35,35,0),(-35,35,0)]]
-        self.create_polygon([v for p in base for v in p[:2]], fill='#344b61', outline='#678198', width=2)
+        self.create_polygon([v for p in base for v in p[:2]], fill='#e7f0e9', outline='#85a68f', width=2)
         points = [self.camera(p) for p in joint_points(self.pose)]
         segments = sorted(range(6), key=lambda i: -(points[i][2]+points[i+1][2])/2)
         for i in segments:
             p, q = points[i], points[i+1]
-            self.create_line(p[:2], q[:2], fill='#36536b', width=22, capstyle='round')
-            self.create_line(p[:2], q[:2], fill='#c8d9e7', width=13, capstyle='round')
+            self.create_line(p[:2], q[:2], fill='#678d72', width=22, capstyle='round')
+            self.create_line(p[:2], q[:2], fill='#e0ece3', width=13, capstyle='round')
         # Every joint has a separate legend row, so overlapping projected joints remain identifiable.
         for i, p in enumerate(points[:6]):
             x, y = p[:2]
-            self.create_oval(x-9, y-9, x+9, y+9, fill=COLORS[i], outline='#eff8ff', width=2)
-            self.create_text(x+15, y-16, text=f'J{i+1}', fill=COLORS[i], anchor='w', font=('Helvetica', 12, 'bold'))
+            self.create_oval(x-9, y-9, x+9, y+9, fill=COLORS[i], outline='#ffffff', width=2)
+            self.create_text(x+15, y-16, text=f'J{i+1}', fill=COLORS[i], anchor='w', font='TkDefaultFont')
             self.create_text(w-18, 78+i*25, anchor='e', text=f'J{i+1}  {NAMES[i]}   {self.pose[i]:+.0f}°',
-                             fill=COLORS[i], font=('Helvetica', 11))
+                             fill=COLORS[i], font='TkDefaultFont')
         # Draw an orientation marker so wrist/tool rotation remains visible.
         tip_world = joint_points(self.pose)[-1]
         axes = ('z', 'y', 'y', 'x', 'y', 'x')
-        for offset, color in [((24, 0, 0), '#ef8d8d'), ((0, 24, 0), '#80d1a3'), ((0, 0, 24), '#7bbafa')]:
+        for offset, color in [((24, 0, 0), '#1d5637'), ((0, 24, 0), '#5d9870'), ((0, 0, 24), '#a2c5ad')]:
             for axis, angle in reversed(list(zip(axes, self.pose))):
                 offset = rotate(offset, axis, angle)
             end = self.camera(tuple(a+b for a,b in zip(tip_world, offset)))
             self.create_line(points[-1][:2], end[:2], fill=color, width=3)
         tip = points[-1]
-        self.create_oval(tip[0]-5, tip[1]-5, tip[0]+5, tip[1]+5, fill='#fff1c9', outline='')
-        self.create_text(20, h-20, anchor='w', text='Illustrative geometry · no collision prediction', fill='#91a5bb', font=('Helvetica', 10))
+        self.create_oval(tip[0]-5, tip[1]-5, tip[0]+5, tip[1]+5, fill='#1d5637', outline='')
+        self.create_text(20, h-20, anchor='w', text='Illustrative geometry · no collision prediction', fill='#526c5b', font='TkDefaultFont')
