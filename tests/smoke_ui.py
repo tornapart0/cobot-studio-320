@@ -6,6 +6,15 @@ root = tk.Tk()
 app = App(root)
 root.update()
 app.preview()
+app.set_pose((10, -15, 20, 25, 30, 35))
+root.update()
+assert app.viewer.pose == (10, -15, 20, 25, 30, 35)
+assert app.controller.robot is None
+app.add_pose()
+assert app.plan()[-1].target == (10, -15, 20, 25, 30, 35)
+app.viewer.reset_camera()
+app.stop()
+assert app.animation is None
 assert app.frames
 assert app.controller.robot is None
 assert not app.armed.get()

@@ -5,7 +5,8 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from .core import parse_program, preview, program, angles
+from .core import parse_program, preview, program, angles, Move, LIMITS, target_plan
+from .viewer import ArmViewer, NAMES
 from .hardware import Controller
 from .rl import train, load_policy, policy_plan
 
@@ -27,67 +28,161 @@ class App:
         self.policy = None
         self.current = (0,)*6
         self.frames = []
+        self.animation = None
+        self.playback = False
         root.title('Cobot Studio · myCobot 320 M5')
-        root.geometry('1100x800')
-        root.minsize(900, 680)
+        root.geometry('1240x850')
+        root.minsize(1080, 780)
         self.status = tk.StringVar(value='Simulation · disconnected')
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value='115200')
         self.goal = tk.StringVar(value='10, -10, 10, 0, 0, 0')
         self.armed = tk.BooleanVar(value=False)
-        outer = ttk.Frame(root, padding=18)
+        self.pose_vars = [tk.DoubleVar(value=0) for _ in range(6)]
+        self.pose_labels = [tk.StringVar(value='0°') for _ in range(6)]
+        style = ttk.Style(root)
+        style.configure('Title.TLabel', font=('Helvetica', 24, 'bold'))
+        style.configure('Heading.TLabel', font=('Helvetica', 13, 'bold'))
+        outer = ttk.Frame(root, padding=16)
         outer.pack(fill='both', expand=True)
-        ttk.Label(outer, text='Cobot Studio', font=('Helvetica', 25, 'bold')).pack(anchor='w')
-        ttk.Label(outer, text='Write → preview → train → run over USB', font=('Helvetica', 13)).pack(anchor='w', pady=(2, 12))
-        connection = ttk.LabelFrame(outer, text='M5 USB connection', padding=10)
-        connection.pack(fill='x')
-        self.ports = ttk.Combobox(connection, textvariable=self.port, width=32)
-        self.ports.pack(side='left')
-        ttk.Button(connection, text='Find ports', command=self.scan).pack(side='left', padx=5)
-        ttk.Combobox(connection, textvariable=self.baud, values=('115200', '1000000'), width=10, state='readonly').pack(side='left')
-        ttk.Button(connection, text='Connect / read', command=self.connect).pack(side='left', padx=5)
-        ttk.Button(connection, text='Disconnect', command=self.disconnect).pack(side='left')
-        ttk.Label(outer, textvariable=self.status).pack(anchor='w', pady=8)
-        notebook = ttk.Notebook(outer)
-        notebook.pack(fill='both', expand=True)
-        editor_tab = ttk.Frame(notebook, padding=10)
-        rl_tab = ttk.Frame(notebook, padding=10)
-        notebook.add(editor_tab, text='Python & preview')
-        notebook.add(rl_tab, text='RL training')
-        self.editor = tk.Text(editor_tab, height=11, font=('Menlo', 12), undo=True, wrap='none')
+        header = ttk.Frame(outer)
+        header.pack(fill='x', pady=(0, 12))
+        ttk.Label(header, text='Cobot Studio', style='Title.TLabel').pack(side='left')
+        ttk.Label(header, textvariable=self.status).pack(side='right')
+
+        body = ttk.Frame(outer)
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2, minsize=420)
+        body.rowconfigure(0, weight=1)
+        left = ttk.Frame(body)
+        left.grid(row=0, column=0, sticky='nsew', padx=(0, 16))
+        self.viewer = ArmViewer(left)
+        self.viewer.pack(fill='both', expand=True)
+        view_row = ttk.Frame(left)
+        view_row.pack(fill='x', pady=8)
+        ttk.Button(view_row, text='Reset view', command=self.viewer.reset_camera).pack(side='left')
+        ttk.Button(view_row, text='Show measured pose', command=lambda: self.set_pose(self.current)).pack(side='left', padx=6)
+        ttk.Label(left, text='Joint target', style='Heading.TLabel').pack(anchor='w', pady=(6, 4))
+        for i, limit in enumerate(LIMITS):
+            row = ttk.Frame(left)
+            row.pack(fill='x', pady=3)
+            ttk.Label(row, text=f'J{i+1}  {NAMES[i]}', width=16).pack(side='left')
+            ttk.Scale(row, from_=-limit, to=limit, variable=self.pose_vars[i],
+                      command=lambda value: self.slider_changed()).pack(side='left', fill='x', expand=True)
+            ttk.Label(row, textvariable=self.pose_labels[i], width=7, anchor='e').pack(side='left', padx=(8, 0))
+        pose_row = ttk.Frame(left)
+        pose_row.pack(fill='x', pady=9)
+        ttk.Button(pose_row, text='Zero target', command=lambda: self.set_pose((0,)*6)).pack(side='left')
+        ttk.Button(pose_row, text='Add to script', command=self.add_pose).pack(side='left', padx=6)
+        ttk.Button(pose_row, text='Push target…', command=self.push_target).pack(side='right')
+        ttk.Label(left, text='Sliders adjust the preview. Push target sends a reviewed move over USB.',
+                  wraplength=540).pack(anchor='w')
+
+        right = ttk.Frame(body)
+        right.grid(row=0, column=1, sticky='nsew')
+        tabs = ttk.Notebook(right)
+        tabs.pack(fill='both', expand=True)
+        sim = ttk.Frame(tabs, padding=12)
+        scripting = ttk.Frame(tabs, padding=12)
+        connection = ttk.Frame(tabs, padding=12)
+        tabs.add(sim, text='Train & simulate')
+        tabs.add(scripting, text='Script')
+        tabs.add(connection, text='Connect')
+        ttk.Label(sim, text='1. Set a target', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(sim, text='Adjust the joint sliders beside the arm.').pack(anchor='w', pady=(6, 18))
+        ttk.Label(sim, text='2. Train a policy', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(sim, text='Learn a joint-reaching controller in the simplified simulation.',
+                  wraplength=350).pack(anchor='w', pady=6)
+        ttk.Button(sim, text='Train policy', command=self.train).pack(anchor='w', pady=6)
+        self.reward = tk.StringVar(value='No policy yet.')
+        ttk.Label(sim, textvariable=self.reward, wraplength=350).pack(anchor='w', pady=6)
+        ttk.Label(sim, text='3. Simulate to target', style='Heading.TLabel').pack(anchor='w', pady=(18, 6))
+        ttk.Label(sim, text='Generate a script from the learned policy and play it in the 3D view.',
+                  wraplength=350).pack(anchor='w', pady=6)
+        ttk.Button(sim, text='Simulate trained policy', command=self.simulate_policy).pack(anchor='w', pady=6)
+        ttk.Button(sim, text='Push generated script…', command=self.run_arm).pack(anchor='w', pady=6)
+        files = ttk.Frame(sim)
+        files.pack(fill='x', pady=18)
+        ttk.Button(files, text='Load policy', command=self.load_policy).pack(side='left')
+        ttk.Button(files, text='Save policy', command=self.save_policy).pack(side='left', padx=6)
+        ttk.Label(sim, text='Joint simulation only. No gravity, contact or collision model. Physical testing is required.',
+                  wraplength=350).pack(anchor='w', pady=12)
+
+        ttk.Label(scripting, text='Motion script', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(scripting, text='robot.move([six angles], speed)\nrobot.wait(seconds)').pack(anchor='w', pady=8)
+        self.editor = tk.Text(scripting, height=14, width=35, font=('Menlo', 11), undo=True, wrap='none')
         self.editor.pack(fill='both', expand=True)
         self.editor.insert('1.0', EXAMPLE)
-        row = ttk.Frame(editor_tab)
+        row = ttk.Frame(scripting)
         row.pack(fill='x', pady=8)
-        for label, command in [('Open .py', self.open_program), ('Save .py', self.save_program),
-                               ('Preview', self.preview), ('Save trajectory', self.save_trajectory)]:
-            ttk.Button(row, text=label, command=command).pack(side='left', padx=(0, 5))
-        self.chart = tk.Canvas(editor_tab, height=180, bg='#111c2d', highlightthickness=0)
-        self.chart.pack(fill='x')
-        ttk.Label(editor_tab, text='Six joint angles across preview steps · not a 3D or collision simulation').pack(anchor='w')
-        ttk.Label(rl_tab, text='Train a joint-reaching policy', font=('Helvetica', 18, 'bold')).pack(anchor='w')
-        ttk.Label(rl_tab, text='Reward-driven random search learns six feedback gains in a synthetic joint model.\nActions are bounded to 2° per step. No real arm is used during training.').pack(anchor='w', pady=12)
-        rl_row = ttk.Frame(rl_tab)
-        rl_row.pack(anchor='w')
-        for label, command in [('Train policy', self.train), ('Load policy', self.load_policy), ('Save policy', self.save_policy)]:
-            ttk.Button(rl_row, text=label, command=command).pack(side='left', padx=(0, 5))
-        ttk.Label(rl_tab, text='Target joint angles, comma separated:').pack(anchor='w', pady=(20, 5))
-        ttk.Entry(rl_tab, textvariable=self.goal, width=65).pack(anchor='w')
-        ttk.Button(rl_tab, text='Generate Python from policy', command=self.generate).pack(anchor='w', pady=10)
-        self.reward = tk.StringVar(value='No policy trained or loaded.')
-        ttk.Label(rl_tab, textvariable=self.reward).pack(anchor='w')
-        ttk.Label(rl_tab, text='Generated plans start at the last measured arm pose (zero while disconnected).\nReview and preview the Python before running. External pickle / PyTorch models are not loaded.').pack(anchor='w', pady=18)
-        run_row = ttk.Frame(outer)
-        run_row.pack(fill='x', pady=10)
-        ttk.Checkbutton(run_row, text='I checked the clear workspace and physical stop', variable=self.armed).pack(side='left')
-        ttk.Button(run_row, text='Run on arm', command=self.run_arm).pack(side='right')
-        ttk.Button(run_row, text='STOP / cancel', command=self.stop).pack(side='right', padx=10)
-        ttk.Label(outer, text='Software stop depends on USB and firmware. Keep the physical emergency stop accessible.').pack(anchor='w')
-        self.log = tk.Text(outer, height=5, state='disabled', font=('Menlo', 10))
-        self.log.pack(fill='x', pady=(8, 0))
+        for label, command in [('Open', self.open_program), ('Save', self.save_program), ('Simulate', self.preview)]:
+            ttk.Button(row, text=label, command=command).pack(side='left', padx=(0, 4))
+        ttk.Button(scripting, text='Push script to arm…', command=self.run_arm).pack(anchor='w', pady=4)
+        ttk.Button(scripting, text='Export trajectory', command=self.save_trajectory).pack(anchor='w', pady=4)
+
+        ttk.Label(connection, text='myCobot 320 M5 · USB', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(connection, text='Select your arm’s serial port.').pack(anchor='w', pady=(16, 6))
+        self.ports = ttk.Combobox(connection, textvariable=self.port, width=30)
+        self.ports.pack(fill='x')
+        ttk.Button(connection, text='Refresh ports', command=self.scan).pack(anchor='w', pady=8)
+        ttk.Label(connection, text='Firmware baud rate').pack(anchor='w', pady=(16, 6))
+        ttk.Combobox(connection, textvariable=self.baud, values=('115200', '1000000'),
+                     width=12, state='readonly').pack(anchor='w')
+        ttk.Button(connection, text='Connect / read joints', command=self.connect).pack(anchor='w', pady=(18, 6))
+        ttk.Button(connection, text='Disconnect', command=self.disconnect).pack(anchor='w', pady=6)
+        ttk.Label(connection, text='Connecting reads the arm without moving it. Python stays on this Mac.',
+                  wraplength=350).pack(anchor='w', pady=18)
+
+        footer = ttk.Frame(outer)
+        footer.pack(fill='x', pady=(14, 4))
+        ttk.Checkbutton(footer, text='Workspace clear · physical stop ready', variable=self.armed).pack(side='left')
+        ttk.Button(footer, text='STOP', command=self.stop).pack(side='right')
+        self.log = tk.Text(outer, height=3, state='disabled', font=('Menlo', 10), wrap='word')
+        self.log.pack(fill='x', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         self.scan()
+
+    def target_pose(self):
+        return angles([round(v.get(), 1) for v in self.pose_vars])
+
+    def set_pose(self, pose):
+        for variable, value in zip(self.pose_vars, pose):
+            variable.set(value)
+        self.slider_changed()
+
+    def slider_changed(self):
+        # Sliders never issue hardware commands.
+        if self.animation is not None:
+            self.root.after_cancel(self.animation)
+            self.animation = None
+        self.playback = False
+        pose = self.target_pose()
+        for label, value in zip(self.pose_labels, pose):
+            label.set(f'{value:+.1f}°')
+        self.viewer.set_pose(pose)
+
+    def add_pose(self):
+        self.editor.insert('end', program([Move(self.target_pose(), 5)]))
+        self.editor.see('end')
+        self.note('Target added to script.')
+
+    def push_target(self):
+        self.guard(lambda: self.send_plan(target_plan(self.current, self.target_pose())))
+
+    def simulate_policy(self):
+        self.goal.set(', '.join(str(v) for v in self.target_pose()))
+        self.generate()
+
+    def animate(self, index=0):
+        self.animation = None
+        if index >= len(self.frames):
+            self.playback = False
+            return
+        self.playback = True
+        self.viewer.set_pose(self.frames[index])
+        self.animation = self.root.after(40, lambda: self.animate(index+1))
 
     def note(self, message):
         self.log.configure(state='normal')
@@ -119,6 +214,7 @@ class App:
                         self.note('Error: '+value)
                     elif isinstance(value, tuple) and len(value) == 6:
                         self.current = value
+                        self.set_pose(value)
                         self.note('Measured joints: '+str(value))
                     elif isinstance(value, dict):
                         self.policy = value
@@ -128,6 +224,7 @@ class App:
                     self.status.set('USB connected' if self.controller.robot else 'Simulation · disconnected')
                 elif kind == 'pose':
                     self.current = value
+                    self.viewer.set_pose(value)
         except queue.Empty:
             pass
         self.root.after(100, self.poll)
@@ -159,16 +256,9 @@ class App:
         self.guard(start)
 
     def draw(self):
-        self.chart.delete('all')
-        w = max(800, self.chart.winfo_width())
-        self.chart.create_line(20, 90, w-20, 90, fill='#45556d')
-        for j, color in enumerate(('#77d8ee', '#a8e6a1', '#f1ca75', '#b6a3ff', '#ff9cac', '#f2f4f8')):
-            points = []
-            for i, frame in enumerate(self.frames):
-                points.extend((20+i*(w-40)/max(1, len(self.frames)-1), 90-frame[j]*0.43))
-            if len(points) >= 4:
-                self.chart.create_line(*points, fill=color, width=2)
-            self.chart.create_text(40+j*70, 165, text=f'J{j+1}', fill=color)
+        if self.animation is not None:
+            self.root.after_cancel(self.animation)
+        self.animate()
 
     def train(self):
         self.guard(lambda: self.task(lambda: train()[0]))
@@ -225,18 +315,28 @@ class App:
                                        'start': self.current, 'frames': frames}, indent=2), '.json')
         self.guard(save)
 
+    def send_plan(self, plan):
+        if self.busy:
+            raise ValueError('Wait for the current operation, or press STOP.')
+        if not self.controller.robot or not self.armed.get():
+            raise ValueError('Connect USB and check the workspace acknowledgment first.')
+        preview(plan, self.current)
+        if not messagebox.askyesno('Move real arm', 'Send this plan over USB at speed 1–10?\nKeep the physical emergency stop ready.'):
+            return
+        if self.animation is not None:
+            self.root.after_cancel(self.animation)
+            self.animation = None
+        self.playback = False
+        self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q))))
+
     def run_arm(self):
-        def run():
-            if not self.controller.robot or not self.armed.get():
-                raise ValueError('Connect USB and check the workspace acknowledgment first.')
-            plan = self.plan()
-            preview(plan, self.current)
-            if not messagebox.askyesno('Physical movement', 'Run this plan on the real arm at speed 1–10?\nKeep the physical emergency stop ready.'):
-                return
-            self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q))))
-        self.guard(run)
+        self.guard(lambda: self.send_plan(self.plan()))
 
     def stop(self):
+        if self.animation is not None:
+            self.root.after_cancel(self.animation)
+            self.animation = None
+        self.playback = False
         self.cancel.set()
         self.armed.set(False)
         self.note('Cancel requested. Hardware worker sends stop after its current serial call. Use the physical stop if needed.')

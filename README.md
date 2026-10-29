@@ -17,17 +17,31 @@ cobot-studio
 
 After cloning/downloading, you can also double-click `Launch.command`. If macOS refuses to open the downloaded launcher, use the Terminal commands above. The first launch installs the Python dependencies into a local virtual environment. Nothing is uploaded to a cloud service.
 
+## Interface
+
+The left side has an interactive 3D arm schematic and six labeled joint sliders. Drag the view to orbit; scroll to zoom. Joint colors match the on-arm labels and angle legend. The tool orientation marker shows wrist rotation. This is original illustrative geometry, **not calibrated forward kinematics or collision detection**.
+
+Sliders affect only the preview. **Add to script** records the target, while **Push target** creates 5° intermediate waypoints from the last measured pose and asks before sending. The hardware adapter still checks live feedback before every move.
+
+The right side has three tabs:
+
+- **Train & simulate**: set a target with the sliders, train/load a policy, then animate the generated trajectory and push its script.
+- **Script**: edit simple Python commands, animate them in the arm viewer, save/open scripts, and send a reviewed script.
+- **Connect**: USB port, firmware baud rate, connect/read, and disconnect.
+
+**Show measured pose** restores the last hardware reading (zero before connection). During simulation the 3D view animates while the sliders retain your target. Simulation is a joint-path preview without physical timing or wait playback. STOP cancels both animation and remaining hardware commands.
+
 ## Workflow
 
 1. Start disconnected. Open `examples/small_move.py` or write a plan.
-2. Click **Preview** to validate and plot all six joint angles. The preview begins at zero while disconnected, or the last measured pose while connected.
-3. In **RL training**, train or load a JSON policy, enter a target of six angles, and generate a Python plan. Save the policy and plan if desired.
+2. Click **Simulate** in the Script tab to validate and animate all six joint angles. The preview begins at zero while disconnected, or the last measured pose while connected.
+3. In **Train & simulate**, set a target with the sliders, train or load a JSON policy, and select **Simulate trained policy** to generate a Python plan. Save the policy and plan if desired.
 4. Mount and power your M5 according to its manual. Connect USB, select its `/dev/cu.*` device, and choose the baud rate matching its firmware. The default here is 115200; do not assume that it matches every revision.
 5. **Connect / read** reads joint feedback without issuing a move or enabling power. It fails closed if feedback is invalid. Install the correct vendor serial-control firmware using myStudio if needed; this app does not flash firmware.
-6. Review the measured starting pose and the complete trajectory. Clear the workspace and keep the physical emergency stop accessible. Check the acknowledgment and select **Run on arm**. A confirmation precedes motion.
+6. Review the measured starting pose and the complete trajectory. Clear the workspace and keep the physical emergency stop accessible. Check the acknowledgment and select **Push script to arm**. A confirmation precedes motion.
 7. **STOP / cancel** cancels remaining commands. The worker requests a software stop after its current serial operation. A blocked/disconnected USB link can delay or prevent that request: use the physical stop when needed.
 
-Python runs on the Mac and streams joint commands through `pymycobot.MyCobot320`. “Run on arm” does **not** upload Python or RL weights into the ESP32. Keep the Mac and USB connected throughout execution.
+Python runs on the Mac and streams joint commands through `pymycobot.MyCobot320`. “Push script to arm” does **not** upload Python or RL weights into the ESP32. Keep the Mac and USB connected throughout execution.
 
 ## Simple commands
 

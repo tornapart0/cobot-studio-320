@@ -41,7 +41,8 @@ A production physics simulation would need exact revision geometry, inertial pro
 - `core.py`: immutable motion commands, strict literal-call parser, numeric validation and joint preview.
 - `rl.py`: original synthetic learning task, reward-driven random search, validated JSON policy and trajectory generation.
 - `hardware.py`: vendor SDK adapter, feedback checks, bounded moves and cancellation.
-- `app.py`: local desktop editor, connection controls, plots and training workflow; workers communicate to Tk through a queue.
+- `viewer.py`: original perspective-rendered 3D schematic with orbit, zoom and six joint labels. Dimensions and axes are illustrative.
+- `app.py`: local desktop editor, joint sliders, connection controls, animated previews and training workflow; workers communicate to Tk through a queue.
 
 Simulation never opens a serial connection. Hardware motion requires a deliberate connection, workspace acknowledgment and run confirmation. Errors abort the remainder of a plan. A software stop is a convenience, not a safety-rated emergency stop. There is no collision checking, force control, gripper integration, Cartesian planner or independent watchdog.
 

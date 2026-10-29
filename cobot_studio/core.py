@@ -81,3 +81,11 @@ def preview(plan, start):
                           for i in range(1, count+1))
             current = command.target
     return frames
+
+
+def target_plan(start, target):
+    """Split a requested target into steps of at most 5° per joint."""
+    start, target = angles(start), angles(target)
+    count = max(1, math.ceil(max(abs(a-b) for a,b in zip(start, target))/5))
+    return [Move(tuple(a+(b-a)*i/count for a,b in zip(start, target)), 5)
+            for i in range(1, count+1)]
