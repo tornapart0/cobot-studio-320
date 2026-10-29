@@ -21,8 +21,10 @@ def rotate(point, axis, degrees):
 
 def joint_points(angles):
     """Six revolute joints plus tool endpoint with cumulative local rotations."""
-    axes = ('z', 'y', 'y', 'x', 'y', 'x')
-    links = ((0, 0, 55), (25, 0, 105), (90, 0, 35), (48, 0, 0), (35, 0, 0), (28, 0, 0))
+    axes = ('z', 'y', 'y', 'z', 'y', 'z')
+    # Zero is the schematic's fully upright pose. Keep the existing link lengths.
+    links = tuple((0, 0, length) for length in
+                  (55, math.hypot(25, 105), math.hypot(90, 35), 48, 35, 28))
     position = (0, 0, 18)
     points = [position]
     rotations = []
@@ -69,9 +71,9 @@ class ArmViewer(tk.Canvas):
     def camera(self, point):
         x, y, z = rotate(point, 'z', self.yaw)
         pitch = math.radians(self.pitch)
-        depth = y*math.cos(pitch)+(z-120)*math.sin(pitch)
-        height = (z-120)*math.cos(pitch)-y*math.sin(pitch)
-        scale = min(self.winfo_width()/580, self.winfo_height()/420)*self.zoom
+        depth = y*math.cos(pitch)+(z-180)*math.sin(pitch)
+        height = (z-180)*math.cos(pitch)-y*math.sin(pitch)
+        scale = min(self.winfo_width()/580, self.winfo_height()/560)*self.zoom
         perspective = 900/(900+depth)
         return (self.winfo_width()*0.45+x*scale*perspective,
                 self.winfo_height()*0.5-height*scale*perspective, depth)
@@ -109,7 +111,7 @@ class ArmViewer(tk.Canvas):
                              fill=COLORS[i], font='TkDefaultFont')
         # Draw an orientation marker so wrist/tool rotation remains visible.
         tip_world = joint_points(self.pose)[-1]
-        axes = ('z', 'y', 'y', 'x', 'y', 'x')
+        axes = ('z', 'y', 'y', 'z', 'y', 'z')
         for offset, color in [((24, 0, 0), '#8cdaa5'), ((0, 24, 0), '#5da274'), ((0, 0, 24), '#b4e6c3')]:
             for axis, angle in reversed(list(zip(axes, self.pose))):
                 offset = rotate(offset, axis, angle)

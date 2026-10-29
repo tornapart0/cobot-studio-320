@@ -23,6 +23,8 @@ The interface uses a simple green and black palette, standard controls and syste
 
 The left side has an interactive 3D arm schematic and six labeled joint sliders. Drag the view to orbit; scroll to zoom. Joint colors match the on-arm labels and angle legend. The tool orientation marker shows wrist rotation. This is original illustrative geometry, **not calibrated forward kinematics or collision detection**.
 
+The all-zero pose is fully upright in the schematic. This display convention does not redefine the real arm’s joint zero or calibration.
+
 Sliders affect only the preview. **Add to script** records the target, while **Push target** creates 5° intermediate waypoints from the last measured pose and asks before sending. The hardware adapter still checks live feedback before every move.
 
 The right side has three tabs:
