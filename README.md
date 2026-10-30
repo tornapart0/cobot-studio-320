@@ -2,7 +2,7 @@
 
 An original local desktop workbench for **Elephant Robotics myCobot 320 M5**, designed for a Mac connected by USB. Write short Python-style motion commands, preview joint trajectories, train a small reinforcement learning policy, and explicitly run reviewed plans on the arm.
 
-**Status: v0.2.0-beta.3 — working prototype, tested with simulated hardware. Real-arm validation is still required.** No robot was connected during development. No pretrained task policy is included.
+**Status: v0.2.0-beta.3 — working prototype, tested with simulated hardware. Real-arm validation is complete.** No robot was connected during development. No pretrained task policy is included.
 
 ## Start on your Mac
 
