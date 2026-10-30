@@ -1,5 +1,10 @@
 # Changes
 
+## Unreleased
+
+- Right-angle rigid link bodies replace diagonal joint-to-joint chords, while preserving the 320 M5 joint frames.
+- Side-view default matches the reference construction; curved arrows show each joint’s positive rotation axis.
+
 ## v0.3.0-beta.1
 
 - Replaced the illustrative viewer model with manufacturer 2022 M5 joint-frame dimensions and local axes.

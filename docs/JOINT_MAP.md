@@ -38,3 +38,13 @@ Automated checks cover frame offsets, rigid chain distances, J1 direction, prese
 Physical acceptance still requires comparing zero and small positive/negative movements for each joint against the actual 2022 unit, using a clear workspace and the vendor's physical stop. If the firmware zero, mounting, mechanical calibration or tooling differs, do not infer a correction by flipping slider signs. Resolve that difference against the unit's manufacturer instructions first.
 
 Measured matching means all six encoder-reported angles are within 1° of B and the model-derived flange-origin difference is within 5 mm. The latter is calculated from joint feedback using this same model; it is **not an independent physical position measurement**. It does not verify tooling, backlash, torque, force or collisions. Exact Cartesian agreement would require independent measurement and calibration.
+
+## Right-angle body rendering
+
+The later, readable drawing contains 110.4 mm and 96 mm links, matching the manufacturer's smaller myCobot documentation rather than the 320's 135 mm and 120 mm links. The user chose to retain 320 dimensions and match the right-angle construction and arrows. The 2022 M5 frame map above therefore remains the hardware/model authority.
+
+The viewer previously joined joint origins by direct diagonal chords. It now decomposes each rigid link's parent-frame offset into orthogonal body sections. These sections rotate together as a rigid link: bends remain at 90 degrees, and their ends coincide with the same manufacturer joint origins at every pose. Joint rotation remains continuous. Curved arrows lie in the plane normal to each joint axis and show positive SDK rotation by the right-hand rule. Reset view restores the side elevation; orbit remains available.
+
+These are original schematic centerlines, not a mesh or exact exterior housing. No hardware sign, angle zero, policy endpoint, joint limit or command changes with this rendering correction.
+
+Diagram source: [manufacturer myCobot manual, mechanical structure section](https://www.elephantrobotics.com/wp-content/uploads/2020/12/myCobot-User-Mannul-EN-V20201126.pdf).

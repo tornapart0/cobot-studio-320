@@ -52,3 +52,41 @@ def forward(q):
 
 def endpoint(q):
     return forward(q)[0][-1]
+
+
+def link_paths(q):
+    """Rigid orthogonal link centerlines in their moving parent frames.
+
+    Joint frames stay unchanged. Only the physical-link depiction differs from
+    the old diagonal chords between origins. Each bend is a local right angle.
+    """
+    orientation = ((1,0,0),(0,1,0),(0,0,1))
+    position = (0,0,0)
+    paths = []
+    for angle, (xyz, rpy) in zip(angles(q), ORIGINS):
+        path = [position]
+        for i in range(3):
+            if abs(xyz[i]) < 1e-9:
+                continue
+            step = tuple(xyz[i] if k == i else 0 for k in range(3))
+            offset = apply(orientation, step)
+            position = tuple(a+b for a,b in zip(position, offset))
+            path.append(position)
+        paths.append(path)
+        origin_rotation = multiply(rotation('z', rpy[2]), multiply(rotation('y', rpy[1]), rotation('x', rpy[0])))
+        orientation = multiply(orientation, origin_rotation)
+        orientation = multiply(orientation, rotation('z', math.radians(angle)))
+    return paths
+
+
+def rotation_arc(point, axis, radius=20):
+    """Positive right-hand rotation arrow in a plane normal to a joint axis."""
+    def cross(a,b):
+        return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    reference = (1,0,0) if abs(axis[2]) > 0.9 else (0,0,1)
+    u = cross(axis, reference)
+    length = math.sqrt(sum(v*v for v in u))
+    u = tuple(v/length for v in u)
+    v = cross(axis,u)
+    return [tuple(p+radius*(math.cos(a)*x+math.sin(a)*y) for p,x,y in zip(point,u,v))
+            for a in (math.radians(-140+i*9) for i in range(31))]

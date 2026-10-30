@@ -1,6 +1,6 @@
 # Cobot Sim & Push · myCobot 320 M5 2022
 
-A local Mac desktop application for setting start/end poses, training a joint-move order, previewing it and sending it over USB. Green/black interface, default system fonts, labeled 3D joint viewer, Python motion editor and measured feedback.
+A local Mac desktop application for setting start/end poses, training a joint-move order, previewing it and sending it over USB. Green/black interface, default system fonts, labeled 3D joint viewer, Python motion editor and measured feedback. The viewer opens in a side view with rigid right-angle link bodies and curved positive-rotation arrows; drag to orbit.
 
 **Beta: this iteration awaits physical validation.** The model now follows the manufacturer's 2022 M5 joint frames. Rendering is schematic and there is no collision or dynamics model. No robot was connected for this iteration’s tests. See [the joint-map audit](docs/JOINT_MAP.md) for dimensions, axes, directionality and limits of verification.
 

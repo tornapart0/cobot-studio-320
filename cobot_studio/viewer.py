@@ -4,7 +4,7 @@
 """
 import math
 import tkinter as tk
-from .kinematics import forward, apply
+from .kinematics import forward, apply, link_paths, rotation_arc
 
 COLORS = ('#8cdaa5', '#74c98f', '#9cddb0', '#66bc81', '#b2e7c2', '#7ad69a')
 NAMES = ('Base', 'Shoulder', 'Elbow', 'Wrist 1', 'Wrist 2', 'Tool')
@@ -29,7 +29,7 @@ class ArmViewer(tk.Canvas):
     def __init__(self, parent):
         super().__init__(parent, background='#090d0a', highlightthickness=0)
         self.pose = (0,)*6
-        self.yaw, self.pitch, self.zoom = -35, 18, 1.0
+        self.yaw, self.pitch, self.zoom = 90, 0, 1.0
         self.drag = None
         self.bind('<Configure>', lambda event: self.draw())
         self.bind('<ButtonPress-1>', lambda event: setattr(self, 'drag', (event.x, event.y)))
@@ -52,7 +52,7 @@ class ArmViewer(tk.Canvas):
         self.draw()
 
     def reset_camera(self):
-        self.yaw, self.pitch, self.zoom = -35, 18, 1.0
+        self.yaw, self.pitch, self.zoom = 90, 0, 1.0
         self.draw()
 
     def camera(self, point):
@@ -71,7 +71,7 @@ class ArmViewer(tk.Canvas):
         if w < 10 or h < 10:
             return
         self.create_text(20, 22, text='Arm preview', fill='#c7e8d1', anchor='w', font='TkDefaultFont')
-        self.create_text(20, 45, text='Drag to orbit · scroll to zoom', fill='#90b69b', anchor='w', font='TkDefaultFont')
+        self.create_text(20, 45, text='Side view · drag to orbit · arrows show positive rotation', fill='#90b69b', anchor='w', font='TkDefaultFont')
         # Filled ground surface shares the same perspective as the arm.
         floor = [self.camera(point) for point in
                  [(-200, -200, 0), (250, -200, 0), (250, 250, 0), (-200, 250, 0)]]
@@ -84,11 +84,15 @@ class ArmViewer(tk.Canvas):
         base = [self.camera(p) for p in [(-35,-35,0),(35,-35,0),(35,35,0),(-35,35,0)]]
         self.create_polygon([v for p in base for v in p[:2]], fill='#172a1e', outline='#568366', width=2)
         points = [self.camera(p) for p in joint_points(self.pose)]
-        segments = sorted(range(6), key=lambda i: -(points[i][2]+points[i+1][2])/2)
-        for i in segments:
-            p, q = points[i], points[i+1]
-            self.create_line(p[:2], q[:2], fill='#355f43', width=22, capstyle='round')
-            self.create_line(p[:2], q[:2], fill='#8dc69e', width=13, capstyle='round')
+        # Model each rigid link as an L-shaped body, never a diagonal chord.
+        paths = [[self.camera(p) for p in path] for path in link_paths(self.pose)]
+        paths.sort(key=lambda path: -sum(p[2] for p in path)/len(path))
+        for path in paths:
+            if len(path) < 2:
+                continue
+            coordinates = [value for point in path for value in point[:2]]
+            self.create_line(*coordinates, fill='#355f43', width=25, capstyle='round', joinstyle='round')
+            self.create_line(*coordinates, fill='#8dc69e', width=16, capstyle='round', joinstyle='round')
         # Every joint has a separate legend row, so overlapping projected joints remain identifiable.
         for i, p in enumerate(points[1:]):
             x, y = p[:2]
@@ -101,7 +105,9 @@ class ArmViewer(tk.Canvas):
         for point, axis in zip(world_points, world_axes):
             origin = self.camera(point)
             end = self.camera(tuple(p+24*a for p,a in zip(point, axis)))
-            self.create_line(origin[:2], end[:2], fill='#b4e6c3', width=2, arrow='last')
+            self.create_line(origin[:2], end[:2], fill='#52735d', width=1, dash=(3,3))
+            arc = [self.camera(p) for p in rotation_arc(point,axis)]
+            self.create_line(*[v for p in arc for v in p[:2]], fill='#b4e6c3', width=2, arrow='last')
         tip_world = world_points[-1]
         for offset, color in [((24,0,0), '#8cdaa5'), ((0,24,0), '#5da274'), ((0,0,24), '#b4e6c3')]:
             end = self.camera(tuple(a+b for a,b in zip(tip_world, apply(orientation, offset))))
