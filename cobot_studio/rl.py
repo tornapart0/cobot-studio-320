@@ -7,6 +7,7 @@ import json
 import math
 import random
 from .core import angles, Move
+from .sequential import SCHEMA, train_route, route_plan, validate
 
 
 def rollout(gains, start, goal, steps=60):
@@ -23,6 +24,8 @@ def rollout(gains, start, goal, steps=60):
 
 
 def train(seed=7, iterations=100, start=None, goal=None):
+    if start is not None or goal is not None:
+        return train_route(start, goal, iterations)
     rng = random.Random(seed)
     tasks = [(tuple(rng.uniform(-30, 30) for _ in range(6)),
               tuple(rng.uniform(-30, 30) for _ in range(6))) for _ in range(8)]
@@ -51,6 +54,8 @@ def train(seed=7, iterations=100, start=None, goal=None):
 
 
 def validate_policy(data):
+    if isinstance(data, dict) and data.get('schema') == SCHEMA:
+        return validate(data)
     if not isinstance(data, dict) or data.get('schema') != 'cobot-joint-gains-v1':
         raise ValueError('Unsupported policy schema. Use a policy trained here.')
     gains = data.get('gains')
@@ -71,6 +76,10 @@ def load_policy(path):
 
 def policy_plan(policy, start, goal):
     validate_policy(policy)
+    if policy.get('schema') == SCHEMA:
+        if list(angles(start)) != policy['start'] or list(angles(goal)) != policy['goal']:
+            raise ValueError('Policy endpoints do not match the selected route.')
+        return route_plan(policy)
     start, goal = angles(start), angles(goal)
     _, path = rollout(policy['gains'], start, goal, steps=route_steps(start, goal))
     if max(abs(a-b) for a,b in zip(path[-1], goal)) > 0.5:

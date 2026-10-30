@@ -1,3 +1,7 @@
+# Historical research notes
+
+The current 2022 joint model and workflow supersede the initial schematic described below. See [JOINT_MAP.md](JOINT_MAP.md) and [the current README](../README.md).
+
 # myCobot 320 M5 research and application design
 
 Reviewed 28 October 2026. Sources below are the manufacturer's documentation and source repositories. Hardware revisions and firmware must be matched before operation.

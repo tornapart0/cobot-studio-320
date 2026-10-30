@@ -1,6 +1,6 @@
 import threading
 import unittest
-from cobot_studio.core import Move
+from cobot_studio.core import Move, JointMove, next_pose, preview, parse_program, program
 from cobot_studio.hardware import Controller
 from cobot_studio.rl import train, policy_plan, validate_policy
 from test_workbench import FakeArm, FastCancel
@@ -14,11 +14,18 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(policy['start'], list(start))
         self.assertEqual(policy['goal'], list(goal))
         plan = policy_plan(policy, start, goal)
-        self.assertEqual(plan[-1].target, goal)
-        previous = start
+        self.assertLessEqual(len(plan), 6)
+        self.assertEqual(len({m.joint_id for m in plan}), len(plan))
+        current = start
         for move in plan:
-            self.assertLessEqual(max(abs(a-b) for a,b in zip(previous, move.target)), 2.000001)
-            previous = move.target
+            self.assertIsInstance(move, JointMove)
+            updated = next_pose(current, move)
+            self.assertEqual(sum(a != b for a,b in zip(current, updated)), 1)
+            self.assertEqual(move.angle, goal[move.joint_id-1])
+            current = updated
+        self.assertEqual(current, goal)
+        self.assertEqual(preview(plan,start)[-1], goal)
+        self.assertEqual(parse_program(program(plan)), plan)
 
     def test_missing_endpoint_in_saved_policy_is_rejected(self):
         policy = {'schema': 'cobot-joint-gains-v1', 'gains': [0.5]*6, 'start': [0]*6}

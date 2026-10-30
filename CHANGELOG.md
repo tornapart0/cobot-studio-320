@@ -1,5 +1,14 @@
 # Changes
 
+## v0.3.0-beta.1
+
+- Replaced the illustrative viewer model with manufacturer 2022 M5 joint-frame dimensions and local axes.
+- Kept SDK J1–J6 direction/order consistent across model, sliders and single-joint commands.
+- Train an order of at most six final joint moves; simulation frames are no longer streamed as route commands.
+- Added continued training batches, hardware speed modifier and measured-B verification.
+- Updated the installed Dock launcher app. New model and execution changes await physical validation, regardless of earlier release validation status.
+
+
 ## v0.2.0-beta.3
 
 - Capture start A and end B with sliders, train on that exact route, simulate and push it.

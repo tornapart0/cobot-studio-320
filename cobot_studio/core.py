@@ -30,6 +30,31 @@ class Move:
 
 
 @dataclass(frozen=True)
+class JointMove:
+    joint_id: int
+    angle: float
+    speed: int = 5
+
+    def __post_init__(self):
+        if type(self.joint_id) is not int or not 1 <= self.joint_id <= 6:
+            raise ValueError('Joint ID must be 1–6.')
+        q = [0]*6
+        q[self.joint_id-1] = self.angle
+        angles(q)
+        Move(tuple(q), self.speed)
+
+
+def next_pose(current, command):
+    if isinstance(command, Move):
+        return command.target
+    if isinstance(command, JointMove):
+        q = list(angles(current))
+        q[command.joint_id-1] = command.angle
+        return angles(q)
+    return angles(current)
+
+
+@dataclass(frozen=True)
 class Wait:
     seconds: float
 
@@ -51,13 +76,15 @@ def parse_program(source):
         if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
                 and isinstance(call.func.value, ast.Name) and call.func.value.id == 'robot'
                 and not call.keywords):
-            raise ValueError("Use robot.move([six angles], speed) or robot.wait(seconds).")
+            raise ValueError("Use robot.joint(id, angle, speed), robot.move([six angles], speed) or robot.wait(seconds).")
         try:
             values = [ast.literal_eval(arg) for arg in call.args]
         except (ValueError, TypeError) as exc:
             raise ValueError("Only literal numbers and lists are supported.") from exc
         if call.func.attr == 'move' and len(values) in (1, 2):
             plan.append(Move(*values))
+        elif call.func.attr == 'joint' and len(values) in (2, 3):
+            plan.append(JointMove(*values))
         elif call.func.attr == 'wait' and len(values) == 1:
             plan.append(Wait(*values))
         else:
@@ -66,8 +93,15 @@ def parse_program(source):
 
 
 def program(plan):
-    return '\n'.join(f'robot.move({list(x.target)!r}, {x.speed})' if isinstance(x, Move)
-                     else f'robot.wait({x.seconds!r})' for x in plan) + '\n'
+    lines = []
+    for command in plan:
+        if isinstance(command, Move):
+            lines.append(f'robot.move({list(command.target)!r}, {command.speed})')
+        elif isinstance(command, JointMove):
+            lines.append(f'robot.joint({command.joint_id}, {command.angle!r}, {command.speed})')
+        else:
+            lines.append(f'robot.wait({command.seconds!r})')
+    return '\n'.join(lines)+'\n'
 
 
 def preview(plan, start):
@@ -75,11 +109,12 @@ def preview(plan, start):
     current = angles(start)
     frames = [current]
     for command in plan:
-        if isinstance(command, Move):
-            count = max(1, math.ceil(max(abs(a-b) for a, b in zip(current, command.target))/2))
-            frames.extend(tuple(a+(b-a)*i/count for a, b in zip(current, command.target))
+        if isinstance(command, (Move, JointMove)):
+            target = next_pose(current, command)
+            count = max(1, math.ceil(max(abs(a-b) for a, b in zip(current, target))/2))
+            frames.extend(tuple(a+(b-a)*i/count for a, b in zip(current, target))
                           for i in range(1, count+1))
-            current = command.target
+            current = target
     return frames
 
 

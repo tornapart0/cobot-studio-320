@@ -5,14 +5,12 @@ from cobot_studio.viewer import joint_points
 
 
 class ViewerWorkflowTests(unittest.TestCase):
-    def test_zero_is_fully_upright(self):
+    def test_zero_uses_manufacturer_offsets_not_straightened_links(self):
         points = joint_points((0,)*6)
-        for before, after in zip(points, points[1:]):
-            self.assertAlmostEqual(after[0], 0)
-            self.assertAlmostEqual(after[1], 0)
-            self.assertGreater(after[2], before[2])
-        self.assertAlmostEqual(points[-1][2]-points[0][2],
-                               sum(math.dist(a,b) for a,b in zip(points, points[1:])))
+        self.assertAlmostEqual(points[1][2], 173.9, places=2)
+        self.assertAlmostEqual(points[2][1], -88.78, places=2)
+        self.assertAlmostEqual(points[-1][2], 523.9, places=2)
+        self.assertAlmostEqual(points[-1][1], -154.28, places=2)
 
     def test_large_slider_target_becomes_bounded_hardware_steps(self):
         start = (-160, -130, -140, -140, -160, -170)

@@ -1,12 +1,12 @@
-# Cobot Studio 320 · Beta
+# Cobot Sim & Push · myCobot 320 M5 2022
 
-An original local desktop workbench for **Elephant Robotics myCobot 320 M5**, designed for a Mac connected by USB. Write short Python-style motion commands, preview joint trajectories, train a small reinforcement learning policy, and explicitly run reviewed plans on the arm.
+A local Mac desktop application for setting start/end poses, training a joint-move order, previewing it and sending it over USB. Green/black interface, default system fonts, labeled 3D joint viewer, Python motion editor and measured feedback.
 
-**Status: v0.2.0-beta.3 — working prototype, tested with simulated hardware. Real-arm validation is complete.** No robot was connected during development. No pretrained task policy is included.
+**Beta: this iteration awaits physical validation.** The model now follows the manufacturer's 2022 M5 joint frames. Rendering is schematic and there is no collision or dynamics model. No robot was connected for this iteration’s tests. See [the joint-map audit](docs/JOINT_MAP.md) for dimensions, axes, directionality and limits of verification.
 
-## Start on your Mac
+## Launch
 
-Install Python 3.11 or newer with Tk support (the python.org macOS installer includes Tk). Open Terminal in this folder:
+Use the **Cobot Sim & Push** Dock shortcut on the configured Mac, or open `Launch.command` in this folder. Python 3.11+ with Tk is required (available with the python.org Mac installer).
 
 ```sh
 python3 -m venv .venv
@@ -15,86 +15,69 @@ python -m pip install -e .
 cobot-studio
 ```
 
-After cloning/downloading, you can also double-click `Launch.command`. If macOS refuses to open the downloaded launcher, use the Terminal commands above. The first launch installs the Python dependencies into a local virtual environment. Nothing is uploaded to a cloud service.
+The launcher uses the code in this folder, so updates apply when you next open the app. It never connects or moves the arm automatically. This is source with a launcher, not a standalone bundled Python installation.
 
-## Interface
+## A → B workflow
 
-The interface uses a simple green and black palette, standard controls and system default fonts.
+1. Adjust the six sliders and select **Set start A**. Adjust again and select **Set end B**. **Show A/B** restores either saved pose. The model uses the manufacturer's true fixed offsets; zero is not artificially straightened.
+2. Choose iterations per batch and **Train this route**. Training searches for a joint order with lower integrated joint error. **Continue training** starts from the best existing order, keeps the same endpoints and adds iterations. Changing A or B clears old training.
+3. **Simulate A → B** animates the individual joint moves and places the same commands in the script editor. There are at most six: each changed joint moves once directly to its final angle; unchanged joints are omitted. Simulation frames are never all sent to the robot.
+4. Preview from several camera angles. A one-joint-at-a-time path can hit obstacles or other parts of the robot. The trainer does not detect or avoid these collisions.
+5. In **Connect**, select the USB `/dev/cu.*` port and correct firmware baud rate, then **Connect / read joints**. The unit must be mounted, powered and running the manufacturer's serial-control firmware. The app does not flash, calibrate or power on hardware.
+6. Set **Arm speed ×** (0.2–2.0). It multiplies each command's speed and clamps the result to the workbench's 1–10% SDK speed range. This differs from **Sim speed**, which affects only playback.
+7. After checking the workspace and physical stop, use **Move arm to start A** for a separately confirmed approach. **Push trained A → B** checks fresh feedback within 2° per joint of A, then issues at most six individual `send_angle` calls. It waits for three samples within 1° of each commanded intermediate pose before advancing. Timeout or invalid feedback stops the run; it never retries a joint command automatically.
+8. The final report says **Matched B** only if all measured joint errors are within 1° and the model flange-origin error is within 5 mm. **Verify measured B** repeats the read-only check. Verification is saved with a policy if you save after measuring. The model-based error uses encoder readings; it is not independent physical tool-position measurement.
 
-The left side has an interactive 3D arm schematic and six labeled joint sliders. Drag the view to orbit; scroll to zoom. Joint colors match the on-arm labels and angle legend. The tool orientation marker shows wrist rotation. This is original illustrative geometry, **not calibrated forward kinematics or collision detection**.
+Continue training can improve simulated move order. It cannot remove encoder calibration, mechanical or model errors. A measured mismatch stays visible and must be investigated. The app does not repeatedly move the real arm or silently apply learned calibration offsets until the error disappears. All training is bounded to the requested batch; every physical run is separately confirmed.
 
-The all-zero pose is fully upright in the schematic. This display convention does not redefine the real arm’s joint zero or calibration.
+## Speed and smoothness
 
-**Sim speed** adjusts playback from 0.25× to 4×, including while playing. **Smoothness** blends between linear motion (0%) and smooth, bounded interpolation (100%). The viewer renders at up to 60 frames per second. **Replay** restarts the last simulation. These controls affect only visualization, not training, exported waypoints or hardware speed.
+**Sim speed** is 0.25×–4×. **Smoothness** blends linear display motion and bounded interpolation, with up to 60 display updates per second. **Replay** restarts the last simulation. These controls do not change exported joint commands, real timing or real hardware speed. The viewer does not play script waits or model servo acceleration.
 
-Sliders affect only the preview. **Add to script** records the target, while **Push target** creates 5° intermediate waypoints from the last measured pose and asks before sending. The hardware adapter still checks live feedback before every move.
-
-The right side has three tabs:
-
-- **Train & simulate**: adjust sliders and select **Set start A**, then adjust again and select **Set end B**. **Train this route** learns on these exact poses. **Simulate A → B** animates from A and places the route in the script editor. **Move arm to start A** is a separate, confirmed movement; **Push trained A → B** reads live feedback and requires the real arm to be within 2° per joint of A. Changing a saved endpoint invalidates the previous policy. Show A/B restores either saved pose to the sliders. Saving a policy includes both endpoints; loading it restores them.
-- **Script**: edit simple Python commands, animate them in the arm viewer, save/open scripts, and send a reviewed script.
-- **Connect**: USB port, firmware baud rate, connect/read, and disconnect.
-
-**Show measured pose** restores the last hardware reading (zero before connection). During simulation the 3D view animates while the sliders retain your target. Simulation is a joint-path preview without physical timing or wait playback. STOP cancels both animation and remaining hardware commands.
-
-## Workflow
-
-1. Start disconnected. Open `examples/small_move.py` or write a plan.
-2. Click **Simulate** in the Script tab to validate and animate all six joint angles. The preview begins at zero while disconnected, or the last measured pose while connected.
-3. In **Train & simulate**, capture A and B from the sliders, select **Train this route**, then **Simulate A → B**. Save the policy and plan if desired.
-4. Mount and power your M5 according to its manual. Connect USB, select its `/dev/cu.*` device, and choose the baud rate matching its firmware. The default here is 115200; do not assume that it matches every revision.
-5. **Connect / read** reads joint feedback without issuing a move or enabling power. It fails closed if feedback is invalid. Install the correct vendor serial-control firmware using myStudio if needed; this app does not flash firmware.
-6. Review the measured starting pose and the complete trajectory. Clear the workspace and keep the physical emergency stop accessible. Check the acknowledgment and select **Push script to arm**. A confirmation precedes motion.
-7. **STOP / cancel** cancels remaining commands. The worker requests a software stop after its current serial operation. A blocked/disconnected USB link can delay or prevent that request: use the physical stop when needed.
-
-Python runs on the Mac and streams joint commands through `pymycobot.MyCobot320`. “Push script to arm” does **not** upload Python or RL weights into the ESP32. Keep the Mac and USB connected throughout execution.
-
-## Simple commands
+**Arm speed ×** is the physical command modifier. An individual script command includes its base speed:
 
 ```python
-robot.move([0, 0, 0, 0, 0, 0], 5)
-robot.move([5, 0, 0, 0, 0, 0], 5)
+# Start at a separately checked A pose.
+robot.joint(1, 15, 5)
+robot.joint(3, -20, 5)
 robot.wait(1)
 ```
 
-The editor accepts only literal `robot.move([j1, j2, j3, j4, j5, j6], speed)` and `robot.wait(seconds)` calls. Angles are degrees, speed is an SDK percentage capped to **1–10** here. Waits are 0–30 seconds. Imports, variables, loops and arbitrary Python execution are intentionally unsupported in the GUI. Saved `.py` files are plans for this workbench; they are not standalone scripts.
+`robot.joint(joint_id, final_degrees, speed)` maps to the SDK's `send_angle`. It allows larger final-angle changes than the legacy vector-step method. The GUI still accepts `robot.move([six angles], speed)` and `robot.wait(seconds)`. Vector moves are restricted to 10° per step from measured feedback. Speeds are integer 1–10, waits 0–30 seconds. The editor accepts literal calls only; imports, loops, variables and arbitrary execution are unsupported. Plans are workbench `.py` files, not standalone scripts.
 
-For normal Python, use the same validated controller directly:
+For standard Python control:
 
 ```python
 from threading import Event
 from cobot_studio.hardware import Controller
-from cobot_studio.core import Move
+from cobot_studio.core import JointMove
 
 arm = Controller()
 try:
-    measured = arm.connect('/dev/cu.usbserial-YOUR_DEVICE', 115200)
-    # Only after physically checking this specific movement:
-    target = list(measured)
-    target[0] += 2
-    arm.run([Move(target, 5)], Event())
+    a = arm.connect('/dev/cu.usbserial-YOUR_DEVICE', 115200)
+    b = list(a)
+    b[0] += 2
+    # Run only after physically checking this specific movement.
+    report = arm.run([JointMove(1, b[0], 5)], Event(),
+                     required_start=a, expected_goal=b, speed_modifier=0.5)
+    print(report)
 finally:
     arm.close()
 ```
 
-The hardware adapter reads feedback before each move, rejects steps over 10°, waits for three feedback samples within 1° of target, and stops on invalid feedback or a 20-second arrival timeout. The 1° arrival threshold is software tolerance, not a specification of Cartesian accuracy. Do not treat the speed cap or joint limits as collision protection.
+Python and training run on the Mac. Commands stream over USB; no Python code or policy is installed into the ESP32. Keep the Mac connected. Software STOP depends on USB and firmware; keep the physical emergency stop ready.
 
-## What the RL feature does
+## Model and policy files
 
-This is a small, reproducible reward-driven random-search baseline. The GUI optimizes six proportional feedback gains for your captured A → B route. The Python training API also supports a generic baseline trained on eight generated tasks when no endpoints are supplied. Observations are joint error, actions are increments capped to ±2° per step, and reward penalizes squared joint error and action magnitude. `rollout()` is a deterministic joint-space integrator. It has **no gravity, torque, link geometry, contact, payload, latency or collision model**.
+See [JOINT_MAP.md](docs/JOINT_MAP.md) for manufacturer sources and frame details. Distances are in millimetres and angles in SDK degrees. No vendor meshes or firmware are bundled.
 
-The trained policy generates a bounded, finite joint trajectory which you can inspect and run through the same USB adapter. On hardware, the generated waypoints are replayed with measured-arrival checks; the simulated timing is not preserved. This is an educational sim-to-hardware workflow, **not validated physical sim-to-real transfer**. Save/load uses plain JSON with schema and numeric validation, not pickle or executable model files.
-
-For manipulation, contact tasks or external PPO/SAC policies, first add a calibrated MuJoCo or PyBullet model using the exact arm revision and licensed model assets, then validate sensors, timing, limits and collision handling. External neural policy import and physics simulation are not implemented in this version.
-
-## Research and design
-
-See [the research notes](docs/RESEARCH.md) for official sources, revision differences, setup requirements and implementation scope. The interface, code and simplified learning model were created for this project; no vendor meshes, logos, firmware or third-party product designs are bundled. `pymycobot` and `pyserial` remain separately installed third-party dependencies under their own licenses. This project is not affiliated with Elephant Robotics.
+New policies use `cobot-sequential-v2`, saving the 2022 model identifier, A/B angles, joint order, total iterations and reward. Legacy gain policies can be loaded for reference but must be retrained before using the new route workflow. JSON is numerically validated; no pickle or executable policy files are loaded. No PPO/SAC import or physics training is implemented. The optimizer is a small reward-driven random-search baseline over joint orders, not a neural policy.
 
 ## Verify
 
 ```sh
 python -m unittest discover -s tests -v
+PYTHONPATH=. python tests/smoke_ui.py
 ```
 
-Tests cover input validation, non-executing plan parsing, policy persistence and training, feedback failures, cancellation, oversized moves and arrival timeout through a fake serial adapter. These checks do not certify physical operation.
+Tests use fake hardware and do not certify real operation. Independent project using the official `pymycobot` API; dependencies retain their own licenses. Original interface and rendering code; no formal safety certification or affiliation with Elephant Robotics.

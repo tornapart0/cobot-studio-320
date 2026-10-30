@@ -6,11 +6,12 @@ import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from .core import parse_program, preview, program, angles, Move, LIMITS, target_plan
+from .core import parse_program, preview, program, angles, Move, JointMove, LIMITS, target_plan
 from .viewer import ArmViewer, NAMES
 from .playback import sample
 from .hardware import Controller
-from .rl import train, load_policy, policy_plan
+from .rl import load_policy, policy_plan
+from .sequential import train_route, SCHEMA
 
 EXAMPLE = '''# Degrees, six joints; workbench speed 1–10.
 robot.move([0, 0, 0, 0, 0, 0], 5)
@@ -35,7 +36,7 @@ class App:
         self.animation = None
         self.playback = False
         self.play_position = 0.0
-        root.title('Cobot Studio · myCobot 320 M5')
+        root.title('Cobot Sim & Push · 320 M5 2022')
         root.geometry('1240x850')
         root.minsize(1080, 780)
         self.status = tk.StringVar(value='Simulation · disconnected')
@@ -47,6 +48,9 @@ class App:
         self.sim_smoothness = tk.DoubleVar(value=100)
         self.speed_label = tk.StringVar(value='1.00×')
         self.smooth_label = tk.StringVar(value='100%')
+        self.arm_speed = tk.DoubleVar(value=1.0)
+        self.training_iterations = tk.StringVar(value='100')
+        self.verification = tk.StringVar(value='B has not been verified on hardware.')
         self.armed = tk.BooleanVar(value=False)
         self.pose_vars = [tk.DoubleVar(value=0) for _ in range(6)]
         self.pose_labels = [tk.StringVar(value='0°') for _ in range(6)]
@@ -82,7 +86,7 @@ class App:
         outer.pack(fill='both', expand=True)
         header = ttk.Frame(outer)
         header.pack(fill='x', pady=(0, 12))
-        ttk.Label(header, text='Cobot Studio · Beta', style='Title.TLabel').pack(side='left')
+        ttk.Label(header, text='Cobot Sim & Push · Beta', style='Title.TLabel').pack(side='left')
         ttk.Label(header, textvariable=self.status).pack(side='right')
 
         body = ttk.Frame(outer)
@@ -108,6 +112,12 @@ class App:
             ttk.Scale(row, from_=low, to=high, variable=variable,
                       command=lambda value: self.playback_labels()).pack(side='left', fill='x', expand=True)
             ttk.Label(row, textvariable=label, width=7, anchor='e').pack(side='left', padx=(8, 0))
+        speed_row = ttk.Frame(left)
+        speed_row.pack(fill='x', pady=4)
+        ttk.Label(speed_row, text='Arm speed ×', width=16).pack(side='left')
+        ttk.Spinbox(speed_row, from_=0.2, to=2.0, increment=0.1,
+                    textvariable=self.arm_speed, width=6).pack(side='left')
+        ttk.Label(speed_row, text='Commands stay within 1–10%').pack(side='left', padx=8)
         ttk.Label(left, text='Joint target', style='Heading.TLabel').pack(anchor='w', pady=(6, 4))
         for i, limit in enumerate(LIMITS):
             row = ttk.Frame(left)
@@ -128,10 +138,19 @@ class App:
         right.grid(row=0, column=1, sticky='nsew')
         tabs = ttk.Notebook(right)
         tabs.pack(fill='both', expand=True)
-        sim = ttk.Frame(tabs, padding=12)
+        sim_page = ttk.Frame(tabs)
+        sim_canvas = tk.Canvas(sim_page, background='#090d0a', highlightthickness=0, width=390)
+        sim_scroll = ttk.Scrollbar(sim_page, orient='vertical', command=sim_canvas.yview)
+        sim_canvas.configure(yscrollcommand=sim_scroll.set)
+        sim_scroll.pack(side='right', fill='y')
+        sim_canvas.pack(side='left', fill='both', expand=True)
+        sim = ttk.Frame(sim_canvas, padding=12)
+        sim_window = sim_canvas.create_window((0,0), window=sim, anchor='nw')
+        sim.bind('<Configure>', lambda e: sim_canvas.configure(scrollregion=sim_canvas.bbox('all')))
+        sim_canvas.bind('<Configure>', lambda e: sim_canvas.itemconfigure(sim_window, width=e.width))
         scripting = ttk.Frame(tabs, padding=12)
         connection = ttk.Frame(tabs, padding=12)
-        tabs.add(sim, text='Train & simulate')
+        tabs.add(sim_page, text='Train & simulate')
         tabs.add(scripting, text='Script')
         tabs.add(connection, text='Connect')
         ttk.Label(sim, text='1. Set start A and end B', style='Heading.TLabel').pack(anchor='w')
@@ -147,6 +166,9 @@ class App:
         ttk.Button(show, text='Show A', command=lambda: self.show_pose('start')).pack(side='left')
         ttk.Button(show, text='Show B', command=lambda: self.show_pose('goal')).pack(side='left', padx=6)
         ttk.Label(sim, text='2. Train A → B', style='Heading.TLabel').pack(anchor='w', pady=(14, 4))
+        ttk.Label(sim, text='Iterations per batch (1–1000)').pack(anchor='w', pady=(6,0))
+        ttk.Spinbox(sim, from_=1, to=1000, textvariable=self.training_iterations, width=8).pack(anchor='w', pady=4)
+        ttk.Button(sim, text='Continue training', command=lambda: self.train(continue_training=True)).pack(anchor='w', pady=4)
         ttk.Button(sim, text='Train this route', command=self.train).pack(anchor='w', pady=6)
         self.reward = tk.StringVar(value='Set both poses to begin.')
         ttk.Label(sim, textvariable=self.reward, wraplength=350).pack(anchor='w', pady=6)
@@ -154,15 +176,17 @@ class App:
         ttk.Button(sim, text='Simulate A → B', command=self.simulate_policy).pack(anchor='w', pady=4)
         ttk.Button(sim, text='Move arm to start A…', command=self.move_to_start).pack(anchor='w', pady=4)
         ttk.Button(sim, text='Push trained A → B…', command=self.push_route).pack(anchor='w', pady=4)
+        ttk.Button(sim, text='Verify measured B', command=self.verify_goal).pack(anchor='w', pady=4)
+        ttk.Label(sim, textvariable=self.verification, wraplength=350).pack(anchor='w', pady=6)
         files = ttk.Frame(sim)
         files.pack(fill='x', pady=18)
         ttk.Button(files, text='Load policy', command=self.load_policy).pack(side='left')
         ttk.Button(files, text='Save policy', command=self.save_policy).pack(side='left', padx=6)
-        ttk.Label(sim, text='Joint simulation only. No gravity, contact or collision model. Physical testing is required.',
+        ttk.Label(sim, text='Up to 6 joint moves. Simulation improves move order; hardware feedback verifies B. No collision model.',
                   wraplength=350).pack(anchor='w', pady=12)
 
         ttk.Label(scripting, text='Motion script', style='Heading.TLabel').pack(anchor='w')
-        ttk.Label(scripting, text='robot.move([six angles], speed)\nrobot.wait(seconds)').pack(anchor='w', pady=8)
+        ttk.Label(scripting, text='robot.joint(id, final_angle, speed)\nrobot.move([six angles], speed) · robot.wait(seconds)').pack(anchor='w', pady=8)
         self.editor = tk.Text(scripting, height=14, width=35, undo=True, wrap='none', background='#0d1510', foreground='#c7e8d1', insertbackground='#8cdaa5', selectbackground='#285d39', selectforeground='#e1f7e7')
         self.editor.pack(fill='both', expand=True)
         self.editor.insert('1.0', EXAMPLE)
@@ -229,6 +253,7 @@ class App:
                 raise ValueError('Wait for training or movement to finish before changing A or B.')
             setattr(self, 'route_'+which, self.target_pose())
             self.policy = None
+            self.verification.set('Poses changed. B is not verified.')
             self.reward.set('Poses changed. Train this route before pushing.')
             self.update_pose_labels()
         self.guard(capture)
@@ -253,7 +278,7 @@ class App:
 
     def trained_route(self):
         start, goal = self.route()
-        if not self.policy or self.policy.get('start') != list(start) or self.policy.get('goal') != list(goal):
+        if not self.policy or self.policy.get('schema') != SCHEMA or self.policy.get('start') != list(start) or self.policy.get('goal') != list(goal):
             raise ValueError('Train a policy for these exact A and B poses first.')
         return policy_plan(self.policy, start, goal)
 
@@ -269,7 +294,7 @@ class App:
     def push_route(self):
         def push():
             plan = self.trained_route()
-            self.send_plan(plan, required_start=self.route_start)
+            self.send_plan(plan, required_start=self.route_start, expected_goal=self.route_goal)
         self.guard(push)
 
     def playback_labels(self):
@@ -322,9 +347,18 @@ class App:
                         self.current = value
                         self.set_pose(value)
                         self.note('Measured joints: '+str(value))
+                    elif isinstance(value, dict) and value.get('kind') == 'verification':
+                        self.current = angles(value['measured'])
+                        self.viewer.set_pose(self.current)
+                        maximum = max(value['joint_errors'])
+                        outcome = 'Matched B' if value['matched'] else 'B NOT matched'
+                        self.verification.set(f"{outcome}: max joint error {maximum:.2f}°; model flange error {value['model_error_mm']:.2f} mm.")
+                        if self.policy and self.policy.get('goal') == value['goal']:
+                            self.policy['last_verification'] = value
+                        self.note(self.verification.get())
                     elif isinstance(value, dict):
                         self.policy = value
-                        self.reward.set(f"Training reward: {value['initial_reward']:.0f} → {value['final_reward']:.0f} (higher is better)")
+                        self.reward.set(f"{value['iterations']} iterations · order "+' → '.join('J'+str(j) for j in value['order'])+f"\nReward {value['initial_reward']:.0f} → {value['final_reward']:.0f}")
                     else:
                         self.note(value or 'Operation complete.')
                     self.status.set('USB connected' if self.controller.robot else 'Simulation · disconnected')
@@ -377,12 +411,22 @@ class App:
         self.viewer.set_pose(self.frames[0])
         self.animation = self.root.after(16, self.animate)
 
-    def train(self):
+    def train(self, continue_training=False):
         def begin():
             start, goal = self.route()
-            self.reward.set('Training A → B…')
-            self.task(lambda: train(start=start, goal=goal)[0])
+            count = int(self.training_iterations.get())
+            previous = self.policy if continue_training else None
+            if continue_training and (not previous or previous.get('schema') != SCHEMA):
+                raise ValueError('Train this route once before continuing.')
+            self.reward.set('Training joint order A → B…')
+            self.task(lambda: train_route(start, goal, count, previous=previous, cancel=self.cancel)[0])
         self.guard(begin)
+
+    def verify_goal(self):
+        def verify():
+            _, goal = self.route()
+            self.task(lambda: self.controller.verify(goal))
+        self.guard(verify)
 
     def load_policy(self):
         def load():
@@ -411,8 +455,7 @@ class App:
         def generate():
             plan = self.trained_route()
             self.editor.delete('1.0', 'end')
-            # The script includes A explicitly so it preserves the route's start.
-            self.editor.insert('1.0', program([Move(self.route_start, 5)] + plan))
+            self.editor.insert('1.0', '# Start A: '+repr(list(self.route_start))+'\n'+program(plan))
             self.frames = preview(plan, self.route_start)
             self.draw()
             self.note('Trained A → B route simulated and saved in the script editor.')
@@ -443,22 +486,33 @@ class App:
                                        'start': self.current, 'frames': frames}, indent=2), '.json')
         self.guard(save)
 
-    def send_plan(self, plan, required_start=None):
+    def send_plan(self, plan, required_start=None, expected_goal=None):
         if self.busy:
             raise ValueError('Wait for the current operation, or press STOP.')
         if not self.controller.robot or not self.armed.get():
             raise ValueError('Connect USB and check the workspace acknowledgment first.')
         preview(plan, self.current)
+        modifier = self.arm_speed.get()
+        if not 0.2 <= modifier <= 2:
+            raise ValueError('Arm speed modifier must be 0.2×–2×.')
+        if not plan and expected_goal is None:
+            raise ValueError('There are no movement commands.')
         if not messagebox.askyesno('Move real arm', 'Send this plan over USB at speed 1–10?\nKeep the physical emergency stop ready.'):
             return
         if self.animation is not None:
             self.root.after_cancel(self.animation)
             self.animation = None
         self.playback = False
-        self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q)), required_start=required_start))
+        self.task(lambda: self.controller.run(plan, self.cancel, lambda q: self.events.put(('pose', q)), required_start=required_start, speed_modifier=modifier, expected_goal=expected_goal))
 
     def run_arm(self):
-        self.guard(lambda: self.send_plan(self.plan()))
+        def run():
+            plan = self.plan()
+            if self.policy and self.policy.get('schema') == SCHEMA and plan == self.trained_route():
+                self.send_plan(plan, required_start=self.route_start, expected_goal=self.route_goal)
+            else:
+                self.send_plan(plan)
+        self.guard(run)
 
     def stop(self):
         if self.animation is not None:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cobot-studio-320"
-version = "0.2.0b3"
+version = "0.3.0b1"
 description = "Local Mac workbench for myCobot 320 M5 joint simulation and USB control"
 requires-python = ">=3.11"
 dependencies = ["pymycobot>=3.9,<4", "pyserial>=3.5,<4"]

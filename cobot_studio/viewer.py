@@ -1,9 +1,10 @@
 """Original interactive 3D schematic, rendered with a simple perspective camera.
 
-Link sizes/axes are illustrative, not calibrated myCobot kinematics.
+2022 M5 joint origins/axes follow the manufacturer URDF; rendering is schematic.
 """
 import math
 import tkinter as tk
+from .kinematics import forward, apply
 
 COLORS = ('#8cdaa5', '#74c98f', '#9cddb0', '#66bc81', '#b2e7c2', '#7ad69a')
 NAMES = ('Base', 'Shoulder', 'Elbow', 'Wrist 1', 'Wrist 2', 'Tool')
@@ -20,22 +21,8 @@ def rotate(point, axis, degrees):
 
 
 def joint_points(angles):
-    """Six revolute joints plus tool endpoint with cumulative local rotations."""
-    axes = ('z', 'y', 'y', 'z', 'y', 'z')
-    # Zero is the schematic's fully upright pose. Keep the existing link lengths.
-    links = tuple((0, 0, length) for length in
-                  (55, math.hypot(25, 105), math.hypot(90, 35), 48, 35, 28))
-    position = (0, 0, 18)
-    points = [position]
-    rotations = []
-    for axis, angle, link in zip(axes, angles, links):
-        rotations.append((axis, angle))
-        offset = link
-        for local_axis, local_angle in reversed(rotations):
-            offset = rotate(offset, local_axis, local_angle)
-        position = tuple(a+b for a, b in zip(position, offset))
-        points.append(position)
-    return points
+    points, _, _ = forward(angles)
+    return [(0, 0, 0)] + points
 
 
 class ArmViewer(tk.Canvas):
@@ -71,9 +58,9 @@ class ArmViewer(tk.Canvas):
     def camera(self, point):
         x, y, z = rotate(point, 'z', self.yaw)
         pitch = math.radians(self.pitch)
-        depth = y*math.cos(pitch)+(z-180)*math.sin(pitch)
-        height = (z-180)*math.cos(pitch)-y*math.sin(pitch)
-        scale = min(self.winfo_width()/580, self.winfo_height()/560)*self.zoom
+        depth = y*math.cos(pitch)+(z-240)*math.sin(pitch)
+        height = (z-240)*math.cos(pitch)-y*math.sin(pitch)
+        scale = min(self.winfo_width()/580, self.winfo_height()/700)*self.zoom
         perspective = 900/(900+depth)
         return (self.winfo_width()*0.45+x*scale*perspective,
                 self.winfo_height()*0.5-height*scale*perspective, depth)
@@ -103,20 +90,22 @@ class ArmViewer(tk.Canvas):
             self.create_line(p[:2], q[:2], fill='#355f43', width=22, capstyle='round')
             self.create_line(p[:2], q[:2], fill='#8dc69e', width=13, capstyle='round')
         # Every joint has a separate legend row, so overlapping projected joints remain identifiable.
-        for i, p in enumerate(points[:6]):
+        for i, p in enumerate(points[1:]):
             x, y = p[:2]
             self.create_oval(x-9, y-9, x+9, y+9, fill=COLORS[i], outline='#090d0a', width=2)
             self.create_text(x+15, y-16, text=f'J{i+1}', fill=COLORS[i], anchor='w', font='TkDefaultFont')
             self.create_text(w-18, 78+i*25, anchor='e', text=f'J{i+1}  {NAMES[i]}   {self.pose[i]:+.0f}°',
                              fill=COLORS[i], font='TkDefaultFont')
-        # Draw an orientation marker so wrist/tool rotation remains visible.
-        tip_world = joint_points(self.pose)[-1]
-        axes = ('z', 'y', 'y', 'z', 'y', 'z')
-        for offset, color in [((24, 0, 0), '#8cdaa5'), ((0, 24, 0), '#5da274'), ((0, 0, 24), '#b4e6c3')]:
-            for axis, angle in reversed(list(zip(axes, self.pose))):
-                offset = rotate(offset, axis, angle)
-            end = self.camera(tuple(a+b for a,b in zip(tip_world, offset)))
+        # Actual manufacturer joint axes and flange orientation.
+        world_points, world_axes, orientation = forward(self.pose)
+        for point, axis in zip(world_points, world_axes):
+            origin = self.camera(point)
+            end = self.camera(tuple(p+24*a for p,a in zip(point, axis)))
+            self.create_line(origin[:2], end[:2], fill='#b4e6c3', width=2, arrow='last')
+        tip_world = world_points[-1]
+        for offset, color in [((24,0,0), '#8cdaa5'), ((0,24,0), '#5da274'), ((0,0,24), '#b4e6c3')]:
+            end = self.camera(tuple(a+b for a,b in zip(tip_world, apply(orientation, offset))))
             self.create_line(points[-1][:2], end[:2], fill=color, width=3)
         tip = points[-1]
         self.create_oval(tip[0]-5, tip[1]-5, tip[0]+5, tip[1]+5, fill='#8cdaa5', outline='')
-        self.create_text(20, h-20, anchor='w', text='Illustrative geometry · no collision prediction', fill='#90b69b', font='TkDefaultFont')
+        self.create_text(20, h-20, anchor='w', text='2022 M5 frames · mm · no collision prediction', fill='#90b69b', font='TkDefaultFont')
