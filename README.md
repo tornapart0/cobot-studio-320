@@ -25,6 +25,8 @@ The left side has an interactive 3D arm schematic and six labeled joint sliders.
 
 The all-zero pose is fully upright in the schematic. This display convention does not redefine the real arm’s joint zero or calibration.
 
+**Sim speed** adjusts playback from 0.25× to 4×, including while playing. **Smoothness** blends between linear motion (0%) and smooth, bounded interpolation (100%). The viewer renders at up to 60 frames per second. **Replay** restarts the last simulation. These controls affect only visualization, not training, exported waypoints or hardware speed.
+
 Sliders affect only the preview. **Add to script** records the target, while **Push target** creates 5° intermediate waypoints from the last measured pose and asks before sending. The hardware adapter still checks live feedback before every move.
 
 The right side has three tabs:

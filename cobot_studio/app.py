@@ -2,11 +2,13 @@
 import json
 import queue
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from .core import parse_program, preview, program, angles, Move, LIMITS, target_plan
 from .viewer import ArmViewer, NAMES
+from .playback import sample
 from .hardware import Controller
 from .rl import train, load_policy, policy_plan
 
@@ -32,6 +34,7 @@ class App:
         self.frames = []
         self.animation = None
         self.playback = False
+        self.play_position = 0.0
         root.title('Cobot Studio · myCobot 320 M5')
         root.geometry('1240x850')
         root.minsize(1080, 780)
@@ -40,6 +43,10 @@ class App:
         self.baud = tk.StringVar(value='115200')
         self.start_label = tk.StringVar(value='A: not set')
         self.end_label = tk.StringVar(value='B: not set')
+        self.sim_speed = tk.DoubleVar(value=1.0)
+        self.sim_smoothness = tk.DoubleVar(value=100)
+        self.speed_label = tk.StringVar(value='1.00×')
+        self.smooth_label = tk.StringVar(value='100%')
         self.armed = tk.BooleanVar(value=False)
         self.pose_vars = [tk.DoubleVar(value=0) for _ in range(6)]
         self.pose_labels = [tk.StringVar(value='0°') for _ in range(6)]
@@ -91,6 +98,16 @@ class App:
         view_row.pack(fill='x', pady=8)
         ttk.Button(view_row, text='Reset view', command=self.viewer.reset_camera).pack(side='left')
         ttk.Button(view_row, text='Show measured pose', command=lambda: self.set_pose(self.current)).pack(side='left', padx=6)
+        ttk.Button(view_row, text='Replay', command=self.draw).pack(side='right')
+        for title, variable, low, high, label in [
+            ('Sim speed', self.sim_speed, 0.25, 4, self.speed_label),
+            ('Smoothness', self.sim_smoothness, 0, 100, self.smooth_label)]:
+            row = ttk.Frame(left)
+            row.pack(fill='x', pady=3)
+            ttk.Label(row, text=title, width=16).pack(side='left')
+            ttk.Scale(row, from_=low, to=high, variable=variable,
+                      command=lambda value: self.playback_labels()).pack(side='left', fill='x', expand=True)
+            ttk.Label(row, textvariable=label, width=7, anchor='e').pack(side='left', padx=(8, 0))
         ttk.Label(left, text='Joint target', style='Heading.TLabel').pack(anchor='w', pady=(6, 4))
         for i, limit in enumerate(LIMITS):
             row = ttk.Frame(left)
@@ -255,14 +272,23 @@ class App:
             self.send_plan(plan, required_start=self.route_start)
         self.guard(push)
 
-    def animate(self, index=0):
+    def playback_labels(self):
+        self.speed_label.set(f'{self.sim_speed.get():.2f}×')
+        self.smooth_label.set(f'{self.sim_smoothness.get():.0f}%')
+
+    def animate(self):
         self.animation = None
-        if index >= len(self.frames):
+        now = time.monotonic()
+        elapsed = max(0, now-self.play_time)
+        self.play_time = now
+        # 1× retains the original 40 ms per preview interval; rendering is 60 Hz.
+        self.play_position = min(len(self.frames)-1,
+                                 self.play_position+elapsed*self.sim_speed.get()/0.04)
+        self.viewer.set_pose(sample(self.frames, self.play_position, self.sim_smoothness.get()/100))
+        if self.play_position >= len(self.frames)-1:
             self.playback = False
             return
-        self.playback = True
-        self.viewer.set_pose(self.frames[index])
-        self.animation = self.root.after(40, lambda: self.animate(index+1))
+        self.animation = self.root.after(16, self.animate)
 
     def note(self, message):
         self.log.configure(state='normal')
@@ -338,7 +364,18 @@ class App:
     def draw(self):
         if self.animation is not None:
             self.root.after_cancel(self.animation)
-        self.animate()
+        self.animation = None
+        if self.busy:
+            self.note('Wait for the current operation before replaying.')
+            return
+        if not self.frames:
+            self.note('Simulate a route or script first.')
+            return
+        self.play_position = 0.0
+        self.play_time = time.monotonic()
+        self.playback = True
+        self.viewer.set_pose(self.frames[0])
+        self.animation = self.root.after(16, self.animate)
 
     def train(self):
         def begin():
