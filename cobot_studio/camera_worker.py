@@ -12,7 +12,7 @@ from pathlib import Path
 def main():
     import cv2
     import mediapipe as mp
-    from .mirror import hand_features
+    from .mirror import hand_features, finger_extensions
     model, camera = sys.argv[1], int(sys.argv[2])
     rotation = int(sys.argv[3]) if len(sys.argv) > 3 else 0
     cap = None
@@ -47,6 +47,7 @@ def main():
                     world = [(p.x,p.y,p.z) for p in result.hand_world_landmarks[0]]
                     try:
                         packet['features'] = hand_features(points,world)
+                        packet['extensions'] = finger_extensions(world)
                         category = result.handedness[0][0]
                         packet.update(confidence=category.score,handedness=category.category_name)
                         for x,y,_ in points:

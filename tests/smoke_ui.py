@@ -48,31 +48,47 @@ root.update()
 import time
 from cobot_studio.mirror import HandSample
 original_sample = app.camera.sample
-app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right')
+app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right',(0,)*5)
 app.calibrate_mirror()
 neutral = app.mirror_neutral
 app.mirror_enabled = True
-app.mirror_hold.set()
+app.mirror_run.set()
 def missing():
     raise ValueError('temporarily out of view')
 app.camera.sample = missing
 app.mirror_tick()
 assert app.mirror_neutral is neutral
 assert app.mirror_mapper is not None
-assert not app.mirror_enabled and not app.mirror_hold.is_set()
-app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right')
+assert not app.mirror_enabled and not app.mirror_run.is_set()
+app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right',(0,)*5)
 app.mirror_tick()
 assert app.mirror_neutral is neutral and not app.mirror_enabled
-# Moving focus between controls must not cancel a held session.
-original_focus = root.focus_get
-root.focus_get = lambda: app.hold_button
-app.mirror_hold.set()
-app.release_if_focus_left()
-assert app.mirror_hold.is_set()
-root.focus_get = lambda: None
-app.release_if_focus_left()
-assert not app.mirror_hold.is_set()
-root.focus_get = original_focus
+# One Start action begins a continuous session; no held mouse event is needed.
+from unittest.mock import patch
+original_controller, original_task = app.controller, app.task
+calls=[]
+class FakeMirrorController:
+    robot = object()
+    def mirror(self,*args,**kwargs):
+        calls.append(kwargs)
+        return 'Mirror stopped.'
+app.controller = FakeMirrorController()
+app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right',(0,)*5)
+app.calibrate_mirror()
+mapper = app.mirror_mapper
+app.armed.set(True)
+actions=[]
+app.task = lambda action: actions.append(action)
+with patch('cobot_studio.app.messagebox.askyesno',return_value=True):
+    app.enable_mirror()
+assert app.mirror_run.is_set() and len(actions) == 1
+assert not hasattr(app,'hold_button')
+actions[0]()
+assert calls[0]['mapping_state'] is mapper
+assert calls[0]['mapping_mode'] == 'Finger count + twist'
+app.stop()
+assert not app.mirror_run.is_set()
+app.controller, app.task = original_controller, original_task
 app.camera.sample = original_sample
 root.destroy()
 print('Desktop UI smoke check passed; no serial connection opened.')

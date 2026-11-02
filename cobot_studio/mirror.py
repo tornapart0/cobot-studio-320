@@ -5,6 +5,8 @@ from .core import angles, LIMITS
 
 LABELS = ('Palm left/right', 'Palm up/down', 'Near/far (size proxy)',
           'Wave / palm roll', 'Palm tilt', 'Palm turn')
+MODES = ('Finger count + twist',)
+COUNT_LABELS = ('Fist + twist', '1 finger + twist', '2 fingers + twist', '3 fingers + twist', '4 fingers + twist', '5 fingers + twist')
 STALE_SECONDS = 0.35
 
 
@@ -14,12 +16,14 @@ class HandSample:
     features: tuple
     confidence: float
     handedness: str
+    extensions: tuple = ()  # thumb, index, middle, ring, little; values 0–1
 
     def valid(self, now):
         return (len(self.features) == 6 and all(math.isfinite(x) for x in self.features)
                 and math.isfinite(self.captured_at) and 0 <= now-self.captured_at <= STALE_SECONDS
                 and math.isfinite(self.confidence) and self.confidence >= 0.8
-                and self.handedness in ('Left','Right'))
+                and self.handedness in ('Left','Right')
+                and (not self.extensions or (len(self.extensions) == 5 and all(math.isfinite(v) and 0 <= v <= 1 for v in self.extensions))))
 
 
 def hand_features(image_points, world_points):
@@ -78,6 +82,97 @@ class MirrorMapper:
             if abs(desired-self.filtered[i]) < 0.25:
                 desired = self.filtered[i]
             # Exponential low-pass and independent 3°/s rate bound.
+            step = (desired-self.filtered[i])*(1-math.exp(-dt/0.25))
+            self.filtered[i] += max(-3*dt,min(3*dt,step))
+        return angles(self.filtered)
+
+
+def finger_extensions(points):
+    """Rotation-invariant finger straightness from the 21 estimated 3D points.
+
+    This is geometric gesture recognition, not an anatomical measurement.
+    """
+    if len(points) != 21 or any(len(p) != 3 or not all(math.isfinite(x) for x in p) for p in points):
+        raise ValueError('Expected 21 finite 3D hand landmarks.')
+    def angle(a,b,c):
+        u = [x-y for x,y in zip(a,b)]
+        v = [x-y for x,y in zip(c,b)]
+        denominator = math.sqrt(sum(x*x for x in u)*sum(x*x for x in v))
+        if denominator < 1e-10:
+            raise ValueError('Degenerate finger landmarks.')
+        return math.degrees(math.acos(max(-1,min(1,sum(x*y for x,y in zip(u,v))/denominator))))
+    def clamp(value):
+        return max(0.0,min(1.0,value))
+    result = []
+    for base,pip,dip,tip in ((1,2,3,4),(5,6,7,8),(9,10,11,12),(13,14,15,16),(17,18,19,20)):
+        a = angle(points[base],points[pip],points[dip])
+        b = angle(points[pip],points[dip],points[tip])
+        result.append(clamp((min(a,b)-100)/65))
+    palm_width = math.dist(points[5],points[17])
+    if palm_width < 1e-5:
+        raise ValueError('Palm landmarks are unreliable.')
+    # A straight thumb folded across the palm is not an extended thumb.
+    separation = math.dist(points[4],points[5])/palm_width
+    result[0] *= clamp((separation-0.35)/0.45)
+    return tuple(result)
+
+
+def finger_count(sample):
+    if len(sample.extensions) != 5:
+        return None
+    if any(0.35 < value < 0.7 for value in sample.extensions):
+        return None
+    return sum(value >= 0.7 for value in sample.extensions)
+
+
+def gesture_description(sample, mode=MODES[0]):
+    count = finger_count(sample)
+    if count is None:
+        return 'Unclear finger count · hold a clearer gesture'
+    return ('Fist' if count == 0 else f'{count} finger'+('s' if count != 1 else ''))+f' → J{count+1} · twist to move'
+
+
+class GestureMapper(MirrorMapper):
+    """Each gesture has an explicit joint role; count changes never jump poses."""
+    def __init__(self, neutral, anchor, sensitivity=1.0, signs=(1,)*6, mode=MODES[0]):
+        super().__init__(neutral,anchor,sensitivity,signs)
+        if mode not in MODES or len(neutral.extensions) != 5 or any(not math.isfinite(x) or not 0 <= x <= 1 for x in neutral.extensions):
+            raise ValueError('Restart camera and calibrate with visible finger landmarks.')
+        self.mode = mode
+        self.targets = list(self.anchor)
+        self.selected = finger_count(neutral)
+        self.candidate = self.selected
+        self.candidate_since = neutral.captured_at
+        self.roll_origin = neutral.features[3]
+        self.joint_origin = self.anchor[self.selected] if self.selected is not None else 0
+
+    def target(self,sample,now):
+        if not sample.valid(now) or sample.handedness != self.neutral.handedness or len(sample.extensions) != 5:
+            raise ValueError('Finger tracking lost. Show the same hand clearly.')
+        dt = 0 if self.last_time is None else max(0,min(0.1,now-self.last_time))
+        self.last_time = now
+        count = finger_count(sample)
+        if count != self.selected or count is None:
+            # Freeze every joint while selecting; do not return old joints to zero.
+            self.targets = list(self.filtered)
+            self.selected = None
+            if count != self.candidate or count is None:
+                self.candidate = count
+                self.candidate_since = now
+            elif now-self.candidate_since >= 0.3:
+                self.selected = count
+                self.roll_origin = sample.features[3]
+                self.joint_origin = self.filtered[count]
+        if self.selected is not None:
+            delta = sample.features[3]-self.roll_origin
+            delta = math.atan2(math.sin(delta),math.cos(delta))
+            joint = self.selected
+            self.targets[joint] = self.joint_origin+delta*20*self.signs[joint]*self.sensitivity
+        for i in range(6):
+            desired = max(self.anchor[i]-10,min(self.anchor[i]+10,self.targets[i]))
+            desired = max(-LIMITS[i],min(LIMITS[i],desired))
+            if abs(desired-self.filtered[i]) < 0.25:
+                desired = self.filtered[i]
             step = (desired-self.filtered[i])*(1-math.exp(-dt/0.25))
             self.filtered[i] += max(-3*dt,min(3*dt,step))
         return angles(self.filtered)

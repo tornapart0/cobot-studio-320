@@ -88,9 +88,9 @@ class Controller:
             self.robot.stop()
             raise
 
-    def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6, progress=lambda state: None, reference_pose=None):
-        """Bounded 30-second, hold-to-run session; one outstanding joint at a time."""
-        from .mirror import MirrorMapper
+    def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6, progress=lambda state: None, reference_pose=None, mapping_mode='palm', mapping_state=None):
+        """Continuous explicit-start session; one outstanding joint at a time."""
+        from .mirror import MirrorMapper, GestureMapper
         if not self.robot or len(enabled) != 6 or not any(enabled):
             raise ValueError('Connect the arm and select at least one mirror joint.')
         try:
@@ -102,14 +102,14 @@ class Controller:
             anchor = angles(reference_pose) if reference_pose is not None else measured_start
             if any(abs(a-b)>10 for a,b in zip(measured_start,anchor)):
                 raise ValueError('Arm moved outside the calibrated mirror range. Read joints and calibrate again.')
-            mapper = MirrorMapper(neutral,anchor,sensitivity,signs)
+            mapper = mapping_state or (MirrorMapper(neutral,anchor,sensitivity,signs) if mapping_mode == 'palm'
+                      else GestureMapper(neutral,anchor,sensitivity,signs,mapping_mode))
+            if mapper.anchor != anchor:
+                raise ValueError('Preview and hardware mirror references differ. Recalibrate.')
             mapper.filtered = list(measured_start)
-            started = time.monotonic()
             outstanding = None
             command_count = 0
             while hold.is_set() and not cancel.is_set():
-                if time.monotonic()-started > 30:
-                    raise TimeoutError('Mirror session ended after 30 seconds. Release and enable again.')
                 measured = self.read()
                 report(measured)
                 if any(abs(a-b)>12 for a,b in zip(measured,anchor)):
@@ -139,7 +139,7 @@ class Controller:
                 elif not outstanding:
                     progress(f'Mirror LIVE · {command_count} commands · waiting for selected-joint movement')
                 cancel.wait(0.1)
-            return 'Mirror stopped. Release and enable again to start a new session.'
+            return 'Mirror stopped. Start live mirroring again when ready.'
         finally:
             hold.clear()
             self.robot.stop()

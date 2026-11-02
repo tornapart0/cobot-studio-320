@@ -1,54 +1,52 @@
-# Wrist-camera mirror mode
+# Finger-count whole-arm control
 
-## Backend choice
+## Mapping
 
-OpenCap now offers a Monocular beta for single-camera movement recording. Its published capture/processing workflow does not provide the local, live wrist-webcam hand-landmark interface used here. The original OpenCap core pipeline performs calibrated multi-camera reconstruction. This feature therefore uses **MediaPipe Hand Landmarker**, not OpenCap, for a local, live hand-gesture approximation. No OpenCap cloud upload, account or API is used.
+| Clear hand gesture | Selected robot joint |
+|---|---|
+| Closed fist (0 fingers) | J1 — base, first joint up from the base |
+| 1 finger extended | J2 |
+| 2 fingers extended | J3 |
+| 3 fingers extended | J4 |
+| 4 fingers extended | J5 |
+| 5 fingers extended | J6 — topmost joint |
 
-Sources checked 2 November 2026:
+Show a steady count for about **0.3 seconds** to select a new joint, then twist/roll your hand clockwise or counterclockwise in the camera view to turn that joint. The visible count includes the thumb. You can use any combination of fingers with the same count. There is one mapping mode; there is no separate individual-fingers mode.
+
+Finger count selects the joint rather than ordering it to jump to a fixed angle. Each selection captures the current hand roll and that joint's current preview angle as references. The new joint moves only after a further twist. Other joints retain their positions. An unclear/partially curled count freezes the target instead of guessing. Use the **Invert** option to reverse an individual joint's rotation direction, then recalibrate. Preview and hardware share mapping state, selected joints and the original calibrated robot reference.
+
+## Workflow
+
+1. Reopen the updated app from **Cobot Sim & Push** in the Dock. Old running camera processes must be stopped/reopened so they provide finger data.
+2. In Connect, connect/read the powered 2022 M5 so the displayed robot pose is current.
+3. In Mirror, select the external webcam number and mount rotation, then Start camera. Confirm the correct camera in the live view. Camera indices depend on macOS; 0 or 1 may be the USB camera. If needed, Install camera support sets up the isolated Python 3.11–3.13 MediaPipe/OpenCV runtime and downloads Google's model. The main Tk UI can keep Python 3.14.
+4. Show a clear hand and **Calibrate neutral hand**. Try fist and counts 1–5 in preview. The recognized gesture and corresponding joint are displayed above the video. Select which joints to allow; all six are selected initially. Changing sensitivity, inversion or allowed joints requires recalibration before a new physical session.
+5. Check the workspace acknowledgment, then **Start live robot mirroring** and confirm the movement prompt. The robot follows continuously; **no mouse button needs to be held**. The live status shows actual SDK command count, targets and measured feedback.
+6. **Stop mirroring**, STOP, Escape or camera Stop ends the session. Tracking loss or a connection/feedback fault also stops it. There is no fixed 30-second limit. A brief tracking pause preserves calibration and resumes preview after reacquisition, but hardware requires explicit Start again. No physical movement starts merely by recognizing a gesture.
+
+Changing a count never powers or starts the robot. Start requires USB, valid hand tracking, calibration and the workspace acknowledgment. Explicit motor-power/servo-disabled feedback blocks motion and reports the cause rather than automatically enabling motors.
+
+## Camera-relative interpretation
+
+MediaPipe estimates 21 hand landmarks. The app estimates each finger's straightness from its 3D landmark joint angles, with a palm-relative thumb check. It counts confidently extended versus curled fingers. Intermediate values are treated as ambiguous. Recognition is geometric and unvalidated on this particular user's hand; lighting, occlusion, perspective and a fully occluded thumb can affect the count. The display lets the user check it before real movement.
+
+Twist is relative palm roll from the camera image. A wrist-mounted camera moves with the robot, so the image also changes due to robot motion. This is discrete joint selection plus relative hand rotation, not anatomical shoulder/elbow imitation or recovered metric human 6-DOF. There is no hand-eye/world-frame camera compensation. The wrist camera, fingers and robot are not claimed to have an exact anatomical correspondence.
+
+## Continuous control bounds
+
+One worker owns USB during live control. It uses the same calibrated mapping state as preview. Targets remain within ±10° of the calibration reference and joint limits, with low-pass filtering, deadband and a 3°/s target slew bound. Physical SDK speed remains 3%. Only one joint command is outstanding at a time, and each command is at most 0.5° from measured pose. Feedback must follow before the next command. Stale hand observations beyond 350 ms, a handedness change, explicit Stop, camera failure, feedback lag, or travel-envelope violation aborts movement.
+
+These bounds and the physical emergency stop remain separate controls. Software stop depends on USB and firmware; there is no collision avoidance or safety-rated independent watchdog. The camera and cable alter load/clearance. This iteration's physical gesture control is not validated on the real arm.
+
+## Backend and privacy
+
+Live tracking is **MediaPipe**, not OpenCap. OpenCap's Monocular beta supports single-camera recording, but its published processing workflow is not the local live wrist-webcam hand interface used here. No OpenCap account/API/cloud upload is used. Video stays local and is not recorded. The optional runtime and third-party model are stored locally and excluded from GitHub.
+
+Sources:
 
 - [OpenCap Monocular announcement](https://www.opencap.ai/news)
 - [OpenCap processing pipeline](https://github.com/opencap-org/opencap-core/blob/main/main.py)
 - [MediaPipe Python hand tracking](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)
-- [Google-hosted hand landmark model](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task)
+- [Google-hosted hand model](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task)
 
-This is a gesture-to-joint mapper, not a validated anatomical retargeter. The robot has six revolute arm joints, no human fingers, and no gripper mapping is added. A single wrist-mounted camera does not reliably recover metric hand translation, shoulder/elbow motion or all six independent human degrees of freedom. Wrist movement changes its own camera image; there is no calibrated camera-to-robot hand-eye transform or world-frame stabilization in this version. Keep the person in front of the camera and start with the J4 wave mapping alone.
-
-## Setup and use
-
-1. Open **Mirror**. Select **Install camera support** if support is not already installed. It installs a separate Python 3.11–3.13 runtime environment with MediaPipe/OpenCV and downloads Google's model. The main Tk app can keep its existing Python 3.14 runtime. A suitable base Python must be installed.
-2. Choose the external webcam's camera number (0–10). Numbering depends on macOS; 0 can be the built-in camera. Select the camera mount's 0/90/180/270-degree rotation, then **Start**. Video is captured only after Start. If macOS asks, allow Camera access for the Python runtime. Use the live view to confirm the correct physical camera; stop and try another number if needed. Rotation changes apply on restart.
-3. Put the robot in a physically checked pose and show one clear palm. **Calibrate neutral hand** establishes the gesture reference. Camera pixels are not horizontally flipped. Use the preview to check each direction. **Invert** changes a joint's sign; sensitivity is 0.2×–2×. Recalibrate after changing these mapping settings. Preview follows the same selected joints as hardware, around the last measured robot pose (zero before connection).
-4. To control hardware, first use Connect/read and the workspace acknowledgment. Select which physical joints to drive. **Only J4 is selected initially.** J6 is the topmost joint, so J4 is the third joint down from the top, as requested for waving. Enable other joints only after checking their preview and the resulting physical path.
-5. Select **Enable arm mirror**, review the physical-movement confirmation, then **hold** the mirror button. Real mirroring uses the same calibrated reference pose as preview and checks fresh measured feedback when the held session starts. Read joints before calibration. Internal clicks between controls do not count as leaving the app. Release the button or move the pointer off it to stop. Escape, STOP, focus loss, camera Stop, tracking loss and invalid feedback also stop/disarm it. Each session is capped at 30 seconds and requires enabling again.
-6. Hand tracking is lost after 350 ms without a fresh valid observation, or when the tracked handedness changes. A brief tracking pause preserves neutral calibration and freezes the preview. Reacquisition resumes preview only; explicitly enable again for hardware. Recalibrate if the hand or camera setup changes. One handedness is tracked, not a verified person's identity. Detection thresholds and handedness confidence filtering reduce uncertainty but do not establish tracking accuracy.
-
-Live video and hand coordinates stay on this Mac. They are not recorded or uploaded. Stop releases the camera. Only model/package installation needs network access. Third-party model files and camera environments are not committed to GitHub.
-
-## Default mapping
-
-| Robot joint | Human camera-relative signal | Interpretation |
-|---|---|---|
-| J1 | Palm left/right | Screen-position gesture, not world X |
-| J2 | Palm up/down | Screen-position gesture, not shoulder flexion |
-| J3 | Apparent palm width | Near/far proxy, not measured depth |
-| J4 | Palm roll / side-to-side waving | Requested third joint from the top |
-| J5 | Estimated palm-normal tilt | Approximate palm pitch |
-| J6 | Estimated palm-normal turn | Approximate palm yaw |
-
-The six signals are coupled and depend on viewpoint. No inverse kinematics or imitation learning is claimed. Calibration is neutral subtraction; no ML model is trained from your video. The existing A → B trainer is separate.
-
-## Physical bounds and ownership
-
-Only the hardware worker owns serial access during a held session; other arm tasks cannot run concurrently. Targets are low-pass filtered, have a deadband and a 3°/s target slew limit, and remain within ±10° of the starting measured pose and the configured joint limits. Physical SDK speed is capped to 3%, independently of the ordinary Arm speed modifier. Only one joint command is outstanding at a time, commands are limited to 0.5° from measured pose, and the worker waits for its feedback before sending another. Feedback not following within two seconds, a 12° envelope violation or movement of an inactive joint beyond 2° aborts the session. These are software bounds, not collision prevention or a safety-rated watchdog.
-
-Wrist-mounted cameras and their cables change load and clearance. The physical emergency stop remains necessary: software STOP depends on serial communication and firmware response. Nothing moves on app launch, camera start, model installation or preview calibration.
-
-## Validation status
-
-Automated tests exercise mapping, J4 isolation, angle wrapping, sign inversion, slew/travel bounds, stale/lost tracking, selected-joint control and held-control release with fake hardware. The desktop UI is smoke-tested. No physical hand-to-robot mirroring has been validated in this iteration. A MediaPipe runtime/model check is separate from camera and hardware acceptance.
-
-## When preview moves but hardware does not
-
-The status must say **Enabled** and then **Mirror LIVE** while the button is held. Preview-only movement never sends robot commands. Enable is available only with USB connected, a saved neutral calibration, the workspace acknowledgment and a currently tracked hand. Keep the palm in frame while enabling and holding. The command counter shows actual SDK calls; the live status also shows the last target and measured joint angle. A zero counter means no selected joint has requested sufficient movement yet, or the held session has not started. The app also checks explicit motor-power/servo-disabled feedback and reports it instead of automatically enabling motors.
-
-The active reference pose remains fixed across held sessions, so repeated enabling does not silently shift the physical target away from the displayed simulation. Leaving the app, releasing the button or losing tracking still stops hardware immediately after the current serial operation.
+Tests cover each count-to-joint role, selection debounce, no-jump changes, direction inversion, tracking pauses, count ambiguity, physical stop/fault handling and preview/SDK state consistency through fake hardware. They do not establish camera-recognition accuracy or safe physical operation.
