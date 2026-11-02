@@ -88,6 +88,49 @@ class Controller:
             self.robot.stop()
             raise
 
+    def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6):
+        """Bounded 30-second, hold-to-run session; one outstanding joint at a time."""
+        from .mirror import MirrorMapper
+        if not self.robot or len(enabled) != 6 or not any(enabled):
+            raise ValueError('Connect the arm and select at least one mirror joint.')
+        try:
+            anchor = self.read()
+            mapper = MirrorMapper(neutral,anchor,sensitivity,signs)
+            started = time.monotonic()
+            outstanding = None
+            while hold.is_set() and not cancel.is_set():
+                if time.monotonic()-started > 30:
+                    raise TimeoutError('Mirror session ended after 30 seconds. Release and enable again.')
+                measured = self.read()
+                report(measured)
+                if any(abs(a-b)>12 for a,b in zip(measured,anchor)):
+                    raise ValueError('Mirror travel envelope exceeded. Stop and recalibrate.')
+                if any(not use and abs(a-b)>2 for use,a,b in zip(enabled,measured,anchor)):
+                    raise ValueError('An inactive joint moved unexpectedly.')
+                target = mapper.target(camera.sample(),time.monotonic())
+                if outstanding:
+                    joint,value,issued = outstanding
+                    if abs(measured[joint]-value)>1:
+                        if time.monotonic()-issued > 2:
+                            raise TimeoutError('Mirror joint feedback is not following its command.')
+                        cancel.wait(0.1)
+                        continue
+                    outstanding = None
+                candidates = [(abs(target[i]-measured[i]),i) for i in range(6) if enabled[i]]
+                error,joint = max(candidates)
+                if error > 0.3:
+                    value = measured[joint]+max(-0.5,min(0.5,target[joint]-measured[joint]))
+                    camera.sample()  # Recheck tracking freshness immediately before a command.
+                    if not hold.is_set() or cancel.is_set():
+                        break
+                    self.robot.send_angle(joint+1,value,3)
+                    outstanding = (joint,value,time.monotonic())
+                cancel.wait(0.1)
+            return 'Mirror stopped. Release and enable again to start a new session.'
+        finally:
+            hold.clear()
+            self.robot.stop()
+
     def verify(self, goal):
         goal = angles(goal)
         measured = self.read()

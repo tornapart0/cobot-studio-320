@@ -17,6 +17,12 @@ cobot-studio
 
 The launcher uses the code in this folder, so updates apply when you next open the app. It never connects or moves the arm automatically. This is source with a launcher, not a standalone bundled Python installation.
 
+## Camera mirror mode
+
+The **Mirror** tab provides local hand tracking with camera selection/rotation, neutral calibration, sensitivity and joint inversion. A hand wave drives **J4 (third joint down from J6)**; the preview maps six camera-relative signals. Physical movement is separately enabled and hold-to-run, with J4 selected by default, bounded travel and tracking-loss stop. The camera is never opened on startup. See [Mirror setup and limitations](docs/MIRROR.md).
+
+The live backend is **MediaPipe**, not OpenCap. OpenCap's single-camera recording workflow is not a direct local wrist-webcam hand-control interface. This is approximate gesture mirroring; wrist-camera motion also affects the observed hand. It is not recovered human 6-DOF or a calibrated world-frame imitation system.
+
 ## A → B workflow
 
 1. Adjust the six sliders and select **Set start A**. Adjust again and select **Set end B**. **Show A/B** restores either saved pose. The model uses the manufacturer's true fixed offsets; zero is not artificially straightened.

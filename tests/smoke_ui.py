@@ -5,6 +5,17 @@ from cobot_studio.app import App
 root = tk.Tk()
 app = App(root)
 root.update()
+assert app.camera.process is None
+assert not app.mirror_enabled
+# Check the worker-to-Tk image format without opening a camera.
+import base64
+packet = {'captured_at': 1, 'features': None,
+          'ppm': base64.b64encode(b'P6\n2 2\n255\n'+bytes([0,120,40])*4).decode()}
+original_packet = app.camera.packet
+app.camera.packet = lambda: (packet,None)
+app.mirror_tick()
+assert app.camera_image is not None and app.camera_image.width() == 2
+app.camera.packet = original_packet
 app.preview()
 app.set_pose((10, -15, 20, 25, 30, 35))
 root.update()

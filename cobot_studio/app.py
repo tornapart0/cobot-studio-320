@@ -1,5 +1,6 @@
 """Tk desktop UI. Background workers never touch Tk widgets."""
 import json
+import base64
 import queue
 import threading
 import time
@@ -10,6 +11,8 @@ from .core import parse_program, preview, program, angles, Move, JointMove, LIMI
 from .viewer import ArmViewer, NAMES
 from .playback import sample
 from .hardware import Controller
+from .camera import Camera, setup_runtime
+from .mirror import MirrorMapper, LABELS
 from .rl import load_policy, policy_plan
 from .sequential import train_route, SCHEMA
 
@@ -25,6 +28,21 @@ class App:
     def __init__(self, root):
         self.root = root
         self.controller = Controller()
+        self.camera = Camera(Path(__file__).resolve().parent.parent)
+        self.mirror_mapper = None
+        self.mirror_neutral = None
+        self.mirror_config = None
+        self.mirror_hold = threading.Event()
+        self.mirror_enabled = False
+        self.mirror_live = False
+        self.camera_image = None
+        self.camera_stamp = None
+        self.camera_index = tk.StringVar(value='0')
+        self.camera_rotation = tk.StringVar(value='0')
+        self.mirror_sensitivity = tk.StringVar(value='1.0')
+        self.mirror_status = tk.StringVar(value='Camera off · preview only')
+        self.mirror_joints = [tk.BooleanVar(value=i == 3) for i in range(6)]
+        self.mirror_invert = [tk.BooleanVar(value=False) for _ in range(6)]
         self.events = queue.Queue()
         self.cancel = threading.Event()
         self.busy = False
@@ -153,6 +171,7 @@ class App:
         tabs.add(sim_page, text='Train & simulate')
         tabs.add(scripting, text='Script')
         tabs.add(connection, text='Connect')
+        self.build_mirror_tab(tabs)
         ttk.Label(sim, text='1. Set start A and end B', style='Heading.TLabel').pack(anchor='w')
         ttk.Label(sim, text='Adjust the sliders, then capture each pose.', wraplength=350).pack(anchor='w', pady=6)
         poses = ttk.Frame(sim)
@@ -218,7 +237,167 @@ class App:
         self.log.pack(fill='x', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
+        root.after(80, self.mirror_tick)
+        root.bind('<FocusOut>', lambda event: self.mirror_hold.clear(), add='+')
+        root.bind('<Escape>', lambda event: self.stop(), add='+')
         self.scan()
+
+    def build_mirror_tab(self, tabs):
+        page = ttk.Frame(tabs)
+        tabs.add(page,text='Mirror')
+        canvas = tk.Canvas(page,background='#090d0a',highlightthickness=0,width=390)
+        scrollbar = ttk.Scrollbar(page,orient='vertical',command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right',fill='y')
+        canvas.pack(side='left',fill='both',expand=True)
+        body = ttk.Frame(canvas,padding=12)
+        window = canvas.create_window((0,0),window=body,anchor='nw')
+        body.bind('<Configure>',lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>',lambda event: canvas.itemconfigure(window,width=event.width))
+        ttk.Label(body,text='Local hand mirror · MediaPipe').pack(anchor='w')
+        ttk.Label(body,text='Camera-relative gestures, not measured human 6-DOF.\nJ4 is the third joint down from the top.',wraplength=350).pack(anchor='w',pady=6)
+        ttk.Button(body,text='Install camera support',command=self.install_camera).pack(anchor='w',pady=4)
+        camera_row = ttk.Frame(body)
+        camera_row.pack(fill='x',pady=4)
+        ttk.Label(camera_row,text='Camera number').pack(side='left')
+        ttk.Spinbox(camera_row,from_=0,to=10,textvariable=self.camera_index,width=4).pack(side='left',padx=6)
+        ttk.Button(camera_row,text='Start',command=self.start_camera).pack(side='left')
+        ttk.Button(camera_row,text='Stop',command=self.stop_camera).pack(side='left',padx=4)
+        rotation_row = ttk.Frame(body)
+        rotation_row.pack(fill='x',pady=4)
+        ttk.Label(rotation_row,text='Camera mount rotation').pack(side='left')
+        ttk.Combobox(rotation_row,textvariable=self.camera_rotation,values=('0','90','180','270'),state='readonly',width=5).pack(side='left',padx=6)
+        self.camera_view = ttk.Label(body,text='Camera preview appears here',anchor='center')
+        self.camera_view.pack(fill='x',pady=8)
+        ttk.Label(body,textvariable=self.mirror_status,wraplength=350).pack(anchor='w',pady=4)
+        ttk.Button(body,text='Calibrate neutral hand',command=self.calibrate_mirror).pack(anchor='w',pady=4)
+        sensitivity = ttk.Frame(body)
+        sensitivity.pack(fill='x',pady=4)
+        ttk.Label(sensitivity,text='Sensitivity ×').pack(side='left')
+        ttk.Spinbox(sensitivity,from_=0.2,to=2,increment=0.1,textvariable=self.mirror_sensitivity,width=5).pack(side='left',padx=6)
+        ttk.Label(body,text='Preview uses all six. Tick joints below for real movement.').pack(anchor='w',pady=6)
+        for i,label in enumerate(LABELS):
+            row = ttk.Frame(body)
+            row.pack(fill='x',pady=2)
+            ttk.Checkbutton(row,text=f'J{i+1} · {label}',variable=self.mirror_joints[i]).pack(side='left')
+            ttk.Checkbutton(row,text='Invert',variable=self.mirror_invert[i]).pack(side='right')
+        ttk.Button(body,text='Enable arm mirror…',command=self.enable_mirror).pack(anchor='w',pady=8)
+        self.hold_button = ttk.Button(body,text='HOLD to mirror the arm')
+        self.hold_button.pack(anchor='w',pady=4)
+        self.hold_button.bind('<ButtonPress-1>',lambda event: self.hold_mirror())
+        self.hold_button.bind('<ButtonRelease-1>',lambda event: self.mirror_hold.clear())
+        self.hold_button.bind('<Leave>',lambda event: self.mirror_hold.clear())
+        ttk.Label(body,text='Wrist-mounted camera motion also changes the image. Start with J4 only; check direction in preview. Real motion stays within ±10° of the starting pose, at up to 3°/s and speed 3%. Release, Escape or STOP to stop. Tracking loss disarms the session.',wraplength=350).pack(anchor='w',pady=8)
+
+    def install_camera(self):
+        def install():
+            if self.camera.process is not None:
+                raise ValueError('Stop the camera before installing camera support.')
+            self.task(lambda: setup_runtime(self.camera.root))
+        self.guard(install)
+
+    def start_camera(self):
+        def start():
+            if self.busy:
+                raise ValueError('Finish the current operation first.')
+            self.camera.start(int(self.camera_index.get()),int(self.camera_rotation.get()))
+            self.mirror_status.set('Starting camera. macOS may ask for Camera permission.')
+        self.guard(start)
+
+    def stop_camera(self):
+        self.mirror_hold.clear()
+        self.mirror_enabled = False
+        self.mirror_mapper = None
+        self.mirror_neutral = None
+        self.camera.stop()
+        self.mirror_status.set('Camera off · preview only')
+        self.camera_view.configure(image='',text='Camera off')
+        self.camera_image = None
+
+    def calibrate_mirror(self):
+        def calibrate():
+            if self.busy:
+                raise ValueError('Stop movement before calibrating.')
+            self.mirror_enabled = False
+            self.mirror_neutral = self.camera.sample()
+            signs = tuple(-1 if variable.get() else 1 for variable in self.mirror_invert)
+            sensitivity = float(self.mirror_sensitivity.get())
+            self.mirror_mapper = MirrorMapper(self.mirror_neutral,self.current,sensitivity,signs)
+            self.mirror_config = (sensitivity,signs)
+            self.mirror_status.set('Neutral calibrated · preview follows hand. Enable separately for hardware.')
+        self.guard(calibrate)
+
+    def mirror_tick(self):
+        packet,error = self.camera.packet()
+        if packet and packet.get('captured_at') != self.camera_stamp:
+            self.camera_stamp = packet['captured_at']
+            try:
+                self.camera_image = tk.PhotoImage(data=base64.b64decode(packet['ppm']),format='PPM')
+                self.camera_view.configure(image=self.camera_image,text='')
+            except tk.TclError:
+                self.mirror_status.set('Camera frame display failed.')
+        if self.mirror_mapper and not self.busy:
+            try:
+                target = self.mirror_mapper.target(self.camera.sample(),time.monotonic())
+                if self.animation is not None:
+                    self.root.after_cancel(self.animation)
+                    self.animation = None
+                self.viewer.set_pose(target)
+            except ValueError as exc:
+                self.mirror_hold.clear()
+                self.mirror_enabled = False
+                self.mirror_mapper = None
+                self.mirror_neutral = None
+                self.mirror_status.set(str(exc)+' Calibrate again to resume.')
+        elif error:
+            self.mirror_status.set(error)
+        elif packet and not self.mirror_mapper and not self.busy:
+            try:
+                self.camera.sample()
+                self.mirror_status.set('Hand tracked. Calibrate neutral hand to preview.')
+            except ValueError:
+                self.mirror_status.set('Show one clear palm to the camera.')
+        self.root.after(80,self.mirror_tick)
+
+    def enable_mirror(self):
+        def enable():
+            if self.busy or not self.controller.robot or not self.armed.get() or self.mirror_neutral is None:
+                raise ValueError('Connect the arm, calibrate your neutral hand, and check the workspace acknowledgment.')
+            self.camera.sample()
+            current_config = (float(self.mirror_sensitivity.get()),tuple(-1 if v.get() else 1 for v in self.mirror_invert))
+            if current_config != self.mirror_config:
+                raise ValueError('Mapping settings changed. Calibrate again before enabling.')
+            if not any(variable.get() for variable in self.mirror_joints):
+                raise ValueError('Select at least one hardware joint.')
+            if messagebox.askyesno('Enable hand mirroring', 'Enable the selected joints for a held mirror session?\nThe camera moves with the wrist. Check preview direction and keep the physical stop ready.'):
+                self.mirror_enabled = True
+                self.mirror_status.set('Enabled. Hold the mirror button to move; release to stop.')
+        self.guard(enable)
+
+    def hold_mirror(self):
+        def start():
+            if not self.mirror_enabled or not self.armed.get() or self.busy or self.mirror_neutral is None:
+                raise ValueError('Enable arm mirror first.')
+            self.camera.sample()
+            enabled = tuple(v.get() for v in self.mirror_joints)
+            signs = tuple(-1 if v.get() else 1 for v in self.mirror_invert)
+            sensitivity = float(self.mirror_sensitivity.get())
+            if (sensitivity,signs) != self.mirror_config:
+                raise ValueError('Mapping settings changed. Recalibrate before moving.')
+            neutral = self.mirror_neutral
+            self.mirror_hold.set()
+            self.mirror_live = True
+            self.mirror_enabled = False
+            def run():
+                try:
+                    return self.controller.mirror(self.camera,neutral,self.mirror_hold,self.cancel,
+                        lambda q: self.events.put(('pose',q)),enabled,sensitivity,signs)
+                finally:
+                    self.mirror_live = False
+                    self.mirror_mapper = None
+                    self.mirror_neutral = None
+            self.task(run)
+        self.guard(start)
 
     def target_pose(self):
         return angles([round(v.get(), 1) for v in self.pose_vars])
@@ -325,6 +504,7 @@ class App:
         if self.busy:
             raise ValueError('Wait for the current operation, or press STOP.')
         self.busy = True
+        self.mirror_enabled = False
         self.cancel.clear()
         def work():
             try:
@@ -515,6 +695,10 @@ class App:
         self.guard(run)
 
     def stop(self):
+        self.mirror_hold.clear()
+        self.mirror_enabled = False
+        self.mirror_mapper = None
+        self.mirror_neutral = None
         if self.animation is not None:
             self.root.after_cancel(self.animation)
             self.animation = None
@@ -529,6 +713,7 @@ class App:
             self.note('Wait for operation to stop before closing.')
             return
         try:
+            self.camera.stop()
             self.controller.close()
         finally:
             self.root.destroy()

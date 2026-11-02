@@ -1,5 +1,14 @@
 # Changes
 
+## v0.4.0-beta.1
+
+- Local MediaPipe webcam Mirror tab, camera index and mounting rotation controls.
+- Neutral calibration, six gesture-to-joint mappings, inversion and sensitivity.
+- Wave maps to J4, the third joint down from the wrist tip.
+- Separate hold-to-run hardware mode, J4-only initial selection, stale-tracking stop, limited travel and feedback checks.
+- Optional isolated camera runtime retains the existing desktop Python/Tk setup.
+- OpenCap backend feasibility documented; no OpenCap capture/upload integration is claimed.
+
 ## Unreleased
 
 - Right-angle rigid link bodies replace diagonal joint-to-joint chords, while preserving the 320 M5 joint frames.
