@@ -88,16 +88,25 @@ class Controller:
             self.robot.stop()
             raise
 
-    def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6):
+    def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6, progress=lambda state: None, reference_pose=None):
         """Bounded 30-second, hold-to-run session; one outstanding joint at a time."""
         from .mirror import MirrorMapper
         if not self.robot or len(enabled) != 6 or not any(enabled):
             raise ValueError('Connect the arm and select at least one mirror joint.')
         try:
-            anchor = self.read()
+            for method,label in (('is_power_on','motor power'), ('is_all_servo_enable','servo enable')):
+                query = getattr(self.robot,method,None)
+                if query is not None and query() == 0:
+                    raise ValueError(f'Robot reports {label} is off. Check the physical stop and vendor motor-enable procedure.')
+            measured_start = self.read()
+            anchor = angles(reference_pose) if reference_pose is not None else measured_start
+            if any(abs(a-b)>10 for a,b in zip(measured_start,anchor)):
+                raise ValueError('Arm moved outside the calibrated mirror range. Read joints and calibrate again.')
             mapper = MirrorMapper(neutral,anchor,sensitivity,signs)
+            mapper.filtered = list(measured_start)
             started = time.monotonic()
             outstanding = None
+            command_count = 0
             while hold.is_set() and not cancel.is_set():
                 if time.monotonic()-started > 30:
                     raise TimeoutError('Mirror session ended after 30 seconds. Release and enable again.')
@@ -125,6 +134,10 @@ class Controller:
                         break
                     self.robot.send_angle(joint+1,value,3)
                     outstanding = (joint,value,time.monotonic())
+                    command_count += 1
+                    progress(f'Mirror LIVE · {command_count} commands · J{joint+1} target {value:.1f}° · measured {measured[joint]:.1f}°')
+                elif not outstanding:
+                    progress(f'Mirror LIVE · {command_count} commands · waiting for selected-joint movement')
                 cancel.wait(0.1)
             return 'Mirror stopped. Release and enable again to start a new session.'
         finally:

@@ -238,7 +238,7 @@ class App:
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         root.after(80, self.mirror_tick)
-        root.bind('<FocusOut>', lambda event: self.mirror_hold.clear(), add='+')
+        root.bind('<FocusOut>', lambda event: root.after_idle(self.release_if_focus_left), add='+')
         root.bind('<Escape>', lambda event: self.stop(), add='+')
         self.scan()
 
@@ -275,15 +275,17 @@ class App:
         sensitivity.pack(fill='x',pady=4)
         ttk.Label(sensitivity,text='Sensitivity ×').pack(side='left')
         ttk.Spinbox(sensitivity,from_=0.2,to=2,increment=0.1,textvariable=self.mirror_sensitivity,width=5).pack(side='left',padx=6)
-        ttk.Label(body,text='Preview uses all six. Tick joints below for real movement.').pack(anchor='w',pady=6)
+        ttk.Label(body,text='Preview and arm use the same selected joints.').pack(anchor='w',pady=6)
         for i,label in enumerate(LABELS):
             row = ttk.Frame(body)
             row.pack(fill='x',pady=2)
             ttk.Checkbutton(row,text=f'J{i+1} · {label}',variable=self.mirror_joints[i]).pack(side='left')
             ttk.Checkbutton(row,text='Invert',variable=self.mirror_invert[i]).pack(side='right')
-        ttk.Button(body,text='Enable arm mirror…',command=self.enable_mirror).pack(anchor='w',pady=8)
+        self.enable_mirror_button = ttk.Button(body,text='Enable arm mirror…',command=self.enable_mirror)
+        self.enable_mirror_button.pack(anchor='w',pady=8)
         self.hold_button = ttk.Button(body,text='HOLD to mirror the arm')
         self.hold_button.pack(anchor='w',pady=4)
+        self.hold_button.state(['disabled'])
         self.hold_button.bind('<ButtonPress-1>',lambda event: self.hold_mirror())
         self.hold_button.bind('<ButtonRelease-1>',lambda event: self.mirror_hold.clear())
         self.hold_button.bind('<Leave>',lambda event: self.mirror_hold.clear())
@@ -327,8 +329,15 @@ class App:
             self.mirror_status.set('Neutral calibrated · preview follows hand. Enable separately for hardware.')
         self.guard(calibrate)
 
+    def release_if_focus_left(self):
+        # A child field losing focus is not the same as leaving this app.
+        focused = self.root.focus_get()
+        if focused is None or focused.winfo_toplevel() != self.root:
+            self.mirror_hold.clear()
+
     def mirror_tick(self):
         packet,error = self.camera.packet()
+        tracking = False
         if packet and packet.get('captured_at') != self.camera_stamp:
             self.camera_stamp = packet['captured_at']
             try:
@@ -336,27 +345,40 @@ class App:
                 self.camera_view.configure(image=self.camera_image,text='')
             except tk.TclError:
                 self.mirror_status.set('Camera frame display failed.')
+        try:
+            self.camera.sample()
+            tracking = True
+        except ValueError:
+            pass
         if self.mirror_mapper and not self.busy:
             try:
                 target = self.mirror_mapper.target(self.camera.sample(),time.monotonic())
+                selected = tuple(v.get() for v in self.mirror_joints)
+                target = tuple(q if use else a for q,use,a in zip(target,selected,self.mirror_mapper.anchor))
                 if self.animation is not None:
                     self.root.after_cancel(self.animation)
                     self.animation = None
                 self.viewer.set_pose(target)
+                self.mirror_status.set('Enabled · hold the button to move the arm.' if self.mirror_enabled
+                                       else 'Preview only · calibration saved · enable arm mirror to move.')
             except ValueError as exc:
                 self.mirror_hold.clear()
                 self.mirror_enabled = False
-                self.mirror_mapper = None
-                self.mirror_neutral = None
-                self.mirror_status.set(str(exc)+' Calibrate again to resume.')
-        elif error:
-            self.mirror_status.set(error)
-        elif packet and not self.mirror_mapper and not self.busy:
-            try:
-                self.camera.sample()
-                self.mirror_status.set('Hand tracked. Calibrate neutral hand to preview.')
-            except ValueError:
+                # Keep the neutral reference. Freeze preview and require explicit
+                # re-enabling after tracking resumes; never auto-resume hardware.
+                self.mirror_status.set('Tracking paused · calibration saved. Show the same palm again, then enable.')
+        elif not self.busy:
+            if error:
+                self.mirror_status.set(error)
+            elif tracking:
+                self.mirror_status.set('Hand tracked · calibrate neutral hand first.')
+            elif self.camera.process is not None:
                 self.mirror_status.set('Show one clear palm to the camera.')
+        can_enable = (tracking and self.mirror_neutral is not None and self.controller.robot
+                      and self.armed.get() and not self.busy)
+        self.enable_mirror_button.state(['!disabled'] if can_enable else ['disabled'])
+        can_hold = bool(can_enable and self.mirror_enabled)
+        self.hold_button.state(['!disabled'] if can_hold or self.mirror_live else ['disabled'])
         self.root.after(80,self.mirror_tick)
 
     def enable_mirror(self):
@@ -385,17 +407,17 @@ class App:
             if (sensitivity,signs) != self.mirror_config:
                 raise ValueError('Mapping settings changed. Recalibrate before moving.')
             neutral = self.mirror_neutral
+            reference = self.mirror_mapper.anchor
             self.mirror_hold.set()
             self.mirror_live = True
             self.mirror_enabled = False
             def run():
                 try:
                     return self.controller.mirror(self.camera,neutral,self.mirror_hold,self.cancel,
-                        lambda q: self.events.put(('pose',q)),enabled,sensitivity,signs)
+                        lambda q: self.events.put(('pose',q)),enabled,sensitivity,signs,
+                        progress=lambda state: self.events.put(('mirror_state',state)),reference_pose=reference)
                 finally:
                     self.mirror_live = False
-                    self.mirror_mapper = None
-                    self.mirror_neutral = None
             self.task(run)
         self.guard(start)
 
@@ -542,6 +564,8 @@ class App:
                     else:
                         self.note(value or 'Operation complete.')
                     self.status.set('USB connected' if self.controller.robot else 'Simulation · disconnected')
+                elif kind == 'mirror_state':
+                    self.mirror_status.set(value)
                 elif kind == 'pose':
                     self.current = value
                     self.viewer.set_pose(value)

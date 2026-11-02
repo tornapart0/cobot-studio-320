@@ -44,5 +44,35 @@ app.set_pose((45, 10, -10, 0, 0, 0))
 app.capture_pose('goal')
 assert app.policy is None
 root.update()
+# Tracking loss freezes preview and disarms hardware without deleting calibration.
+import time
+from cobot_studio.mirror import HandSample
+original_sample = app.camera.sample
+app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right')
+app.calibrate_mirror()
+neutral = app.mirror_neutral
+app.mirror_enabled = True
+app.mirror_hold.set()
+def missing():
+    raise ValueError('temporarily out of view')
+app.camera.sample = missing
+app.mirror_tick()
+assert app.mirror_neutral is neutral
+assert app.mirror_mapper is not None
+assert not app.mirror_enabled and not app.mirror_hold.is_set()
+app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right')
+app.mirror_tick()
+assert app.mirror_neutral is neutral and not app.mirror_enabled
+# Moving focus between controls must not cancel a held session.
+original_focus = root.focus_get
+root.focus_get = lambda: app.hold_button
+app.mirror_hold.set()
+app.release_if_focus_left()
+assert app.mirror_hold.is_set()
+root.focus_get = lambda: None
+app.release_if_focus_left()
+assert not app.mirror_hold.is_set()
+root.focus_get = original_focus
+app.camera.sample = original_sample
 root.destroy()
 print('Desktop UI smoke check passed; no serial connection opened.')

@@ -90,6 +90,18 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(speed,3)
         self.assertTrue(arm.robot.stopped)
 
+    def test_disabled_motors_block_commands_and_report_cause(self):
+        arm = Controller(FakeArm)
+        arm.connect('/dev/cu.fake')
+        arm.robot.is_power_on = lambda: 0
+        hold = threading.Event()
+        hold.set()
+        with self.assertRaisesRegex(ValueError,'motor power'):
+            arm.mirror(None,HandSample(0,(0,)*6,0.99,'Right'),hold,FastCancel(),lambda q: None,(False,False,False,True,False,False))
+        self.assertEqual(arm.robot.sent,[])
+        self.assertTrue(arm.robot.stopped)
+        self.assertFalse(hold.is_set())
+
     def test_landmarks_produce_finite_features(self):
         points = [(0.5,0.6,0.0)]*21
         points[0]=(0.5,0.7,0)
