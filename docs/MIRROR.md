@@ -50,3 +50,39 @@ Sources:
 - [Google-hosted hand model](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task)
 
 Tests cover each count-to-joint role, selection debounce, no-jump changes, direction inversion, tracking pauses, count ambiguity, physical stop/fault handling and preview/SDK state consistency through fake hardware. They do not establish camera-recognition accuracy or safe physical operation.
+
+
+## Simulation switch and rotation calibration
+
+Robot output defaults off. Start the camera and calibrate to control only the
+3D preview, without connecting the arm. Check “Send hand movements to robot”
+and explicitly Start to enable hardware. Turning the switch off cancels the
+stream and preserves calibration; turning it on never starts motion by itself.
+
+Choose Roll (camera-plane twist), Tilt or Turn (estimated 3D palm normal), then
+recalibrate. Sensitivity 1 maps one radian of the selected hand angle to one
+radian of requested joint rotation, bounded by the existing ±10° travel and
+3°/s slew limits. Camera movement can change the measured hand orientation;
+this is camera-relative control, not world-referenced motion capture.
+
+The earlier prosthetic gripper PlatformIO controller was reviewed. It controls
+a pressure-sensing servo with filtered feedback, confirmed thresholds, and
+timed steps; it has no camera rotation tracker. Existing measured-angle
+feedback and timed movement bounds in this app serve the comparable role.
+No prosthetic pressure thresholds or unrelated servo limits were copied.
+
+## Weight and tipping warning
+
+The manufacturer’s 2022 page lists 3 kg, its newer manual about 3.3 kg, and
+its specification page 3.36 kg. Rated payload is 1 kg, including the wrist
+camera, mount, tool and carried load. Secure the base. The app cannot infer
+a reliable tipping margin from total mass: link centers of mass, actual
+payload, base support footprint, cable forces and acceleration are unknown.
+The warning is advisory, not a tipping prediction or protective interlock.
+
+Sources:
+- https://docs.elephantrobotics.com/docs/gitbook-en/2-serialproduct/2.2-320/2.2.1-M5.html
+- https://www.elephantrobotics.com/en/mycobot-320-m5-specifications-new-en/
+
+Physical rotation tracking and switching behavior still require validation
+on the actual arm. Automated checks use simulated feedback only.

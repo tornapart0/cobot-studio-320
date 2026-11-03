@@ -41,6 +41,8 @@ class App:
         self.camera_rotation = tk.StringVar(value='0')
         self.mirror_sensitivity = tk.StringVar(value='1.0')
         self.mirror_mode = tk.StringVar(value=MODES[0])
+        self.robot_output = tk.BooleanVar(value=False)
+        self.rotation_axis = tk.StringVar(value='Roll')
         self.gesture_status = tk.StringVar(value='Show a clear hand to select a joint.')
         self.mapping_labels = [tk.StringVar(value=f'J{i+1} · {label}') for i,label in enumerate(COUNT_LABELS)]
         self.mirror_status = tk.StringVar(value='Camera off · preview only')
@@ -78,35 +80,39 @@ class App:
         style = ttk.Style(root)
         # Keep standard controls and default fonts; use green accents on black.
         style.theme_use('clam')
-        root.configure(background='#090d0a')
-        root.option_add('*TCombobox*Listbox.background', '#111b14')
-        root.option_add('*TCombobox*Listbox.foreground', '#b8edc8')
+        root.configure(background='#000000')
+        root.option_add('*TCombobox*Listbox.background', '#000000')
+        root.option_add('*TCombobox*Listbox.foreground', '#63e685')
         root.option_add('*TCombobox*Listbox.selectBackground', '#285d39')
-        style.configure('.', background='#090d0a', foreground='#c7e8d1',
-                        bordercolor='#2b4935', lightcolor='#2b4935', darkcolor='#090d0a',
-                        selectbackground='#285d39', selectforeground='#e1f7e7')
-        style.configure('TFrame', background='#090d0a')
-        style.configure('TLabel', background='#090d0a')
-        style.configure('TNotebook', background='#090d0a', borderwidth=0)
-        style.configure('TNotebook.Tab', background='#111b14', padding=(12, 7))
+        style.configure('.', background='#000000', foreground='#63e685',
+                        bordercolor='#2b4935', lightcolor='#2b4935', darkcolor='#000000',
+                        selectbackground='#285d39', selectforeground='#63e685')
+        style.configure('TFrame', background='#000000')
+        style.configure('TLabel', background='#000000')
+        style.configure('TNotebook', background='#000000', borderwidth=0)
+        style.configure('TNotebook.Tab', background='#000000', padding=(12, 7))
         style.map('TNotebook.Tab', background=[('selected', '#234e30'), ('active', '#1b3523')],
-                  foreground=[('selected', '#d6f6df')])
+                  foreground=[('selected', '#63e685')])
         style.configure('TButton', background='#173b23', bordercolor='#365e42')
         style.map('TButton', background=[('pressed', '#2f6e42'), ('active', '#245632')],
                   foreground=[('disabled', '#66816e')])
-        style.configure('TScale', background='#090d0a', troughcolor='#1c3424')
-        style.configure('TCheckbutton', background='#090d0a', indicatorbackground='#111b14')
-        style.map('TCheckbutton', background=[('active', '#090d0a')],
+        style.configure('TScale', background='#000000', troughcolor='#1c3424')
+        style.configure('TCheckbutton', background='#000000', indicatorbackground='#000000')
+        style.map('TCheckbutton', background=[('active', '#000000')],
                   indicatorbackground=[('selected', '#58b978')])
-        style.configure('TEntry', fieldbackground='#111b14', insertcolor='#b8edc8')
-        style.configure('TCombobox', fieldbackground='#111b14', background='#173b23',
+        style.configure('TEntry', fieldbackground='#000000', insertcolor='#63e685')
+        style.configure('TCombobox', fieldbackground='#000000', background='#173b23',
                         arrowcolor='#8cdaa5')
-        style.map('TCombobox', fieldbackground=[('readonly', '#111b14')],
-                  foreground=[('readonly', '#c7e8d1')])
+        style.map('TCombobox', fieldbackground=[('readonly', '#000000')],
+                  foreground=[('readonly', '#63e685')])
+        style.configure('TSpinbox',fieldbackground='#000000',foreground='#63e685',arrowcolor='#63e685')
+        style.configure('TScrollbar',background='#163b21',troughcolor='#000000',arrowcolor='#63e685')
+        style.map('.',foreground=[('disabled','#39874d')])
         outer = ttk.Frame(root, padding=16)
         outer.pack(fill='both', expand=True)
         header = ttk.Frame(outer)
         header.pack(fill='x', pady=(0, 12))
+        ttk.Label(outer,text='TIP WARNING · secure the base · camera + mount + tool count toward the 1 kg payload limit').pack(fill='x',pady=(0,6))
         ttk.Label(header, text='Cobot Sim & Push · Beta', style='Title.TLabel').pack(side='left')
         ttk.Label(header, textvariable=self.status).pack(side='right')
 
@@ -160,7 +166,7 @@ class App:
         tabs = ttk.Notebook(right)
         tabs.pack(fill='both', expand=True)
         sim_page = ttk.Frame(tabs)
-        sim_canvas = tk.Canvas(sim_page, background='#090d0a', highlightthickness=0, width=390)
+        sim_canvas = tk.Canvas(sim_page, background='#000000', highlightthickness=0, width=390)
         sim_scroll = ttk.Scrollbar(sim_page, orient='vertical', command=sim_canvas.yview)
         sim_canvas.configure(yscrollcommand=sim_scroll.set)
         sim_scroll.pack(side='right', fill='y')
@@ -209,7 +215,7 @@ class App:
 
         ttk.Label(scripting, text='Motion script', style='Heading.TLabel').pack(anchor='w')
         ttk.Label(scripting, text='robot.joint(id, final_angle, speed)\nrobot.move([six angles], speed) · robot.wait(seconds)').pack(anchor='w', pady=8)
-        self.editor = tk.Text(scripting, height=14, width=35, undo=True, wrap='none', background='#0d1510', foreground='#c7e8d1', insertbackground='#8cdaa5', selectbackground='#285d39', selectforeground='#e1f7e7')
+        self.editor = tk.Text(scripting, height=14, width=35, undo=True, wrap='none', background='#000000', foreground='#63e685', insertbackground='#8cdaa5', selectbackground='#285d39', selectforeground='#63e685')
         self.editor.pack(fill='both', expand=True)
         self.editor.insert('1.0', EXAMPLE)
         row = ttk.Frame(scripting)
@@ -236,7 +242,7 @@ class App:
         footer.pack(fill='x', pady=(14, 4))
         ttk.Checkbutton(footer, text='Workspace clear · physical stop ready', variable=self.armed).pack(side='left')
         ttk.Button(footer, text='STOP', command=self.stop).pack(side='right')
-        self.log = tk.Text(outer, height=3, state='disabled', wrap='word', background='#0d1510', foreground='#9cc9a9')
+        self.log = tk.Text(outer, height=3, state='disabled', wrap='word', background='#000000', foreground='#63e685')
         self.log.pack(fill='x', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
@@ -247,7 +253,7 @@ class App:
     def build_mirror_tab(self, tabs):
         page = ttk.Frame(tabs)
         tabs.add(page,text='Mirror')
-        canvas = tk.Canvas(page,background='#090d0a',highlightthickness=0,width=390)
+        canvas = tk.Canvas(page,background='#000000',highlightthickness=0,width=390)
         scrollbar = ttk.Scrollbar(page,orient='vertical',command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side='right',fill='y')
@@ -284,6 +290,10 @@ class App:
             row.pack(fill='x',pady=2)
             ttk.Checkbutton(row,textvariable=label,variable=self.mirror_joints[i]).pack(side='left')
             ttk.Checkbutton(row,text='Invert',variable=self.mirror_invert[i]).pack(side='right')
+        ttk.Checkbutton(body,text='Send hand movements to robot (off = simulation only)',variable=self.robot_output,command=self.change_mirror_output).pack(anchor='w',pady=6)
+        ttk.Label(body,text='Hand rotation axis (recalibrate after changing)').pack(anchor='w')
+        ttk.Combobox(body,textvariable=self.rotation_axis,values=('Roll','Tilt','Turn'),state='readonly',width=12).pack(anchor='w',pady=4)
+        ttk.Label(body,text='TIP WARNING: secure the base before moving. Arm mass ≈3–3.36 kg; payload limit 1 kg includes camera, mount and cables. Total mass does not establish tipping stability; link mass distribution and your mounting footprint are unknown.',wraplength=350).pack(anchor='w',pady=8)
         self.enable_mirror_button = ttk.Button(body,text='Start live robot mirroring…',command=self.enable_mirror)
         self.enable_mirror_button.pack(anchor='w',pady=8)
         ttk.Button(body,text='Stop mirroring',command=self.stop).pack(anchor='w',pady=4)
@@ -292,7 +302,7 @@ class App:
     def mirror_settings(self):
         return (float(self.mirror_sensitivity.get()),
                 tuple(-1 if v.get() else 1 for v in self.mirror_invert),
-                self.mirror_mode.get(),tuple(v.get() for v in self.mirror_joints))
+                self.mirror_mode.get(),tuple(v.get() for v in self.mirror_joints),self.rotation_axis.get())
 
     def install_camera(self):
         def install():
@@ -327,7 +337,7 @@ class App:
             self.mirror_neutral = self.camera.sample()
             signs = tuple(-1 if variable.get() else 1 for variable in self.mirror_invert)
             sensitivity = float(self.mirror_sensitivity.get())
-            self.mirror_mapper = GestureMapper(self.mirror_neutral,self.current,sensitivity,signs,self.mirror_mode.get())
+            self.mirror_mapper = GestureMapper(self.mirror_neutral,self.current,sensitivity,signs,self.mirror_mode.get(),rotation_axis=self.rotation_axis.get())
             self.mirror_config = self.mirror_settings()
             self.mirror_status.set('Neutral calibrated · preview follows hand. Enable separately for hardware.')
         self.guard(calibrate)
@@ -350,6 +360,8 @@ class App:
             self.gesture_status.set('No clear hand · movement paused')
         if self.mirror_mapper and not self.busy:
             try:
+                if self.mirror_settings() != self.mirror_config:
+                    raise ValueError('Mapping settings changed. Calibrate again.')
                 target = self.mirror_mapper.target(self.camera.sample(),time.monotonic())
                 selected = tuple(v.get() for v in self.mirror_joints)
                 target = tuple(q if use else a for q,use,a in zip(target,selected,self.mirror_mapper.anchor))
@@ -357,13 +369,13 @@ class App:
                     self.root.after_cancel(self.animation)
                     self.animation = None
                 self.viewer.set_pose(target)
-                self.mirror_status.set('Preview only · calibration saved · Start live robot mirroring to move.')
+                self.mirror_status.set('Simulation only · hand controls preview' if not self.robot_output.get() else 'Robot output selected · press Start live robot mirroring')
             except ValueError as exc:
                 self.mirror_run.clear()
                 self.mirror_enabled = False
                 # Keep the neutral reference. Freeze preview and require explicit
                 # re-enabling after tracking resumes; never auto-resume hardware.
-                self.mirror_status.set('Tracking paused · calibration saved. Show the same palm again, then enable.')
+                self.mirror_status.set(str(exc))
         elif not self.busy:
             if error:
                 self.mirror_status.set(error)
@@ -371,13 +383,23 @@ class App:
                 self.mirror_status.set('Hand tracked · calibrate neutral hand first.')
             elif self.camera.process is not None:
                 self.mirror_status.set('Show one clear palm to the camera.')
-        can_enable = (tracking and self.mirror_neutral is not None and self.controller.robot
+        can_enable = (self.robot_output.get() and tracking and self.mirror_neutral is not None and self.controller.robot
                       and self.armed.get() and not self.busy)
         self.enable_mirror_button.state(['!disabled'] if can_enable else ['disabled'])
         self.root.after(80,self.mirror_tick)
 
+    def change_mirror_output(self):
+        # Switching off cancels an active stream; switching on never starts one.
+        self.mirror_run.clear()
+        self.mirror_enabled = False
+        if self.mirror_live:
+            self.cancel.set()
+        self.mirror_status.set('Simulation only' if not self.robot_output.get() else 'Robot output selected · press Start to move')
+
     def enable_mirror(self):
         def enable():
+            if not self.robot_output.get():
+                raise ValueError('Robot output is off. Hand movements control simulation only.')
             if self.busy or not self.controller.robot or not self.armed.get() or self.mirror_neutral is None:
                 raise ValueError('Connect the arm, calibrate your neutral hand, and check the workspace acknowledgment.')
             self.camera.sample()

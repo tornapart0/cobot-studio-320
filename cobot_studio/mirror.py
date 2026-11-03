@@ -134,16 +134,19 @@ def gesture_description(sample, mode=MODES[0]):
 
 class GestureMapper(MirrorMapper):
     """Each gesture has an explicit joint role; count changes never jump poses."""
-    def __init__(self, neutral, anchor, sensitivity=1.0, signs=(1,)*6, mode=MODES[0]):
+    def __init__(self, neutral, anchor, sensitivity=1.0, signs=(1,)*6, mode=MODES[0], rotation_axis='Roll'):
         super().__init__(neutral,anchor,sensitivity,signs)
         if mode not in MODES or len(neutral.extensions) != 5 or any(not math.isfinite(x) or not 0 <= x <= 1 for x in neutral.extensions):
             raise ValueError('Restart camera and calibrate with visible finger landmarks.')
+        if rotation_axis not in ('Roll','Tilt','Turn'):
+            raise ValueError('Choose Roll, Tilt or Turn.')
+        self.axis = ('Roll','Tilt','Turn').index(rotation_axis)+3
         self.mode = mode
         self.targets = list(self.anchor)
         self.selected = finger_count(neutral)
         self.candidate = self.selected
         self.candidate_since = neutral.captured_at
-        self.roll_origin = neutral.features[3]
+        self.roll_origin = neutral.features[self.axis]
         self.joint_origin = self.anchor[self.selected] if self.selected is not None else 0
 
     def target(self,sample,now):
@@ -161,13 +164,13 @@ class GestureMapper(MirrorMapper):
                 self.candidate_since = now
             elif now-self.candidate_since >= 0.3:
                 self.selected = count
-                self.roll_origin = sample.features[3]
+                self.roll_origin = sample.features[self.axis]
                 self.joint_origin = self.filtered[count]
         if self.selected is not None:
-            delta = sample.features[3]-self.roll_origin
+            delta = sample.features[self.axis]-self.roll_origin
             delta = math.atan2(math.sin(delta),math.cos(delta))
             joint = self.selected
-            self.targets[joint] = self.joint_origin+delta*20*self.signs[joint]*self.sensitivity
+            self.targets[joint] = self.joint_origin+math.degrees(delta)*self.signs[joint]*self.sensitivity
         for i in range(6):
             desired = max(self.anchor[i]-10,min(self.anchor[i]+10,self.targets[i]))
             desired = max(-LIMITS[i],min(LIMITS[i],desired))

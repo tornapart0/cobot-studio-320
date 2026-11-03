@@ -27,7 +27,7 @@ def joint_points(angles):
 
 class ArmViewer(tk.Canvas):
     def __init__(self, parent):
-        super().__init__(parent, background='#090d0a', highlightthickness=0)
+        super().__init__(parent, background='#000000', highlightthickness=0)
         self.pose = (0,)*6
         self.yaw, self.pitch, self.zoom = 90, 0, 1.0
         self.drag = None
@@ -70,8 +70,8 @@ class ArmViewer(tk.Canvas):
         w, h = self.winfo_width(), self.winfo_height()
         if w < 10 or h < 10:
             return
-        self.create_text(20, 22, text='Arm preview', fill='#c7e8d1', anchor='w', font='TkDefaultFont')
-        self.create_text(20, 45, text='Side view · drag to orbit · arrows show positive rotation', fill='#90b69b', anchor='w', font='TkDefaultFont')
+        self.create_text(20, 22, text='Arm preview', fill='#63e685', anchor='w', font='TkDefaultFont')
+        self.create_text(20, 45, text='Side view · drag to orbit · arrows show positive rotation', fill='#63e685', anchor='w', font='TkDefaultFont')
         # Filled ground surface shares the same perspective as the arm.
         floor = [self.camera(point) for point in
                  [(-200, -200, 0), (250, -200, 0), (250, 250, 0), (-200, 250, 0)]]
@@ -96,7 +96,7 @@ class ArmViewer(tk.Canvas):
         # Every joint has a separate legend row, so overlapping projected joints remain identifiable.
         for i, p in enumerate(points[1:]):
             x, y = p[:2]
-            self.create_oval(x-9, y-9, x+9, y+9, fill=COLORS[i], outline='#090d0a', width=2)
+            self.create_oval(x-9, y-9, x+9, y+9, fill=COLORS[i], outline='#000000', width=2)
             self.create_text(x+15, y-16, text=f'J{i+1}', fill=COLORS[i], anchor='w', font='TkDefaultFont')
             self.create_text(w-18, 78+i*25, anchor='e', text=f'J{i+1}  {NAMES[i]}   {self.pose[i]:+.0f}°',
                              fill=COLORS[i], font='TkDefaultFont')
@@ -114,4 +114,4 @@ class ArmViewer(tk.Canvas):
             self.create_line(points[-1][:2], end[:2], fill=color, width=3)
         tip = points[-1]
         self.create_oval(tip[0]-5, tip[1]-5, tip[0]+5, tip[1]+5, fill='#8cdaa5', outline='')
-        self.create_text(20, h-20, anchor='w', text='2022 M5 frames · mm · no collision prediction', fill='#90b69b', font='TkDefaultFont')
+        self.create_text(20, h-20, anchor='w', text='2022 M5 frames · mm · no collision prediction', fill='#63e685', font='TkDefaultFont')

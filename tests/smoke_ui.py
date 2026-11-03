@@ -77,6 +77,8 @@ app.camera.sample = lambda: HandSample(time.monotonic(),(0,)*6,0.99,'Right',(0,)
 app.calibrate_mirror()
 mapper = app.mirror_mapper
 app.armed.set(True)
+assert not app.robot_output.get()
+app.robot_output.set(True)
 actions=[]
 app.task = lambda action: actions.append(action)
 with patch('cobot_studio.app.messagebox.askyesno',return_value=True):
@@ -86,6 +88,10 @@ assert not hasattr(app,'hold_button')
 actions[0]()
 assert calls[0]['mapping_state'] is mapper
 assert calls[0]['mapping_mode'] == 'Finger count + twist'
+app.robot_output.set(False)
+app.change_mirror_output()
+assert not app.mirror_run.is_set()
+assert app.mirror_mapper is mapper
 app.stop()
 assert not app.mirror_run.is_set()
 app.controller, app.task = original_controller, original_task

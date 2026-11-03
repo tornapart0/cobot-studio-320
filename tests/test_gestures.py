@@ -73,3 +73,14 @@ class GestureTests(unittest.TestCase):
             points[tip]=(x,0.02,0.02)
         folded=finger_extensions(points)
         self.assertTrue(all(x<0.1 for x in folded[1:]))
+
+    def test_rotation_axis_and_degree_scale(self):
+        for axis,index in (('Roll',3),('Tilt',4),('Turn',5)):
+            mapper=GestureMapper(sample(0,0),(0,)*6,rotation_axis=axis)
+            for step in range(101):
+                features=[0.0]*6
+                features[index]=math.radians(5)
+                now=step/10
+                pose=mapper.target(HandSample(now,tuple(features),.99,'Right',(0,)*5),now)
+            self.assertAlmostEqual(pose[0],5,delta=.26)
+            self.assertEqual(pose[1:],(0,)*5)
