@@ -19,7 +19,7 @@ The launcher uses the code in this folder, so updates apply when you next open t
 
 ## Camera mirror mode
 
-**Fist → J1; 1, 2, 3, 4, 5 fingers → J2, J3, J4, J5, J6.** Keep the count steady for about 0.3 seconds, then twist your hand to rotate that joint. The other joints hold position. Ambiguous counts freeze movement; switching counts captures a new twist reference so joints do not jump.
+**Fist → J1; 1, 2, 3, 4, 5 fingers → J2, J3, J4, J5, J6.** Set the straight hand as zero. Keep a finger count steady for about 0.3 seconds to select a joint; point the hand left for its positive limit, right for its negative limit, and straight for 0°. The other joints hold position. Ambiguous counts freeze movement; all joints share the same straight-hand reference, with smooth movement when changing counts. Simulation output defaults off for hardware; enable the robot-output switch and Start explicitly.
 
 After camera setup and neutral calibration, **Start live robot mirroring** runs continuously until **Stop mirroring**, STOP, Escape or tracking/connection loss. There is no hold-to-run control or individual-fingers mode. All six joints are enabled by default and can be deselected. Nothing moves automatically on camera start or app launch. See [Mirror setup and limitations](docs/MIRROR.md).
 

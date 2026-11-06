@@ -110,3 +110,36 @@ class MirrorTests(unittest.TestCase):
         result = hand_features(points,points)
         self.assertEqual(len(result),6)
         self.assertTrue(all(math.isfinite(x) for x in result))
+
+    def test_full_range_mapper_can_follow_beyond_old_ten_degree_envelope(self):
+        from cobot_studio.mirror import GestureMapper
+        from test_sequential import SingleJointArm
+        arm=Controller(SingleJointArm)
+        arm.connect('/dev/cu.fake')
+        arm.robot.q=[25,0,0,0,0,0]
+        neutral=HandSample(0,(0,)*6,.99,'Right',(0,)*5)
+        mapper=GestureMapper(neutral,(0,)*6)
+        run=threading.Event()
+        run.set()
+        clock=[0]
+        def now():
+            clock[0]+=.05
+            return clock[0]
+        class Camera:
+            def sample(self):
+                return HandSample(clock[0],(0,0,0,math.pi/2,0,0),.99,'Right',(0,)*5)
+        original=arm.robot.send_angle
+        def send(joint,value,speed):
+            original(joint,value,speed)
+            run.clear()
+        arm.robot.send_angle=send
+        with patch('cobot_studio.hardware.time.monotonic',side_effect=now):
+            arm.mirror(Camera(),neutral,run,FastCancel(),lambda q:None,(True,False,False,False,False,False),reference_pose=(0,)*6,mapping_mode='Finger count + twist',mapping_state=mapper)
+        self.assertEqual(len(arm.robot.sent),1)
+        joint,value,speed=arm.robot.sent[0]
+        self.assertEqual(joint,1)
+        self.assertGreater(value,25)
+        self.assertLessEqual(value,25.5)
+        self.assertEqual(speed,3)
+        self.assertTrue(arm.robot.stopped)
+        self.assertEqual(mapper.max_rate,60)

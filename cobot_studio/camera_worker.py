@@ -46,7 +46,7 @@ def main():
                     points = [(p.x,p.y,p.z) for p in result.hand_landmarks[0]]
                     world = [(p.x,p.y,p.z) for p in result.hand_world_landmarks[0]]
                     try:
-                        packet['features'] = hand_features(points,world)
+                        packet['features'] = hand_features(points,world,aspect_ratio=frame.shape[1]/frame.shape[0])
                         packet['extensions'] = finger_extensions(world)
                         category = result.handedness[0][0]
                         packet.update(confidence=category.score,handedness=category.category_name)

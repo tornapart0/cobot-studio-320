@@ -26,7 +26,7 @@ class HandSample:
                 and (not self.extensions or (len(self.extensions) == 5 and all(math.isfinite(v) and 0 <= v <= 1 for v in self.extensions))))
 
 
-def hand_features(image_points, world_points):
+def hand_features(image_points, world_points, aspect_ratio=1.0):
     """Six relative palm signals, not measured human Cartesian 6-DOF.
 
     Position is camera-normalized; apparent palm width proxies distance. Roll
@@ -46,8 +46,16 @@ def hand_features(image_points, world_points):
     normal = (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
     if math.sqrt(sum(x*x for x in normal)) < 1e-6:
         raise ValueError('Unreliable palm orientation.')
-    # Periodic angles are differenced with wraparound during mapping.
-    roll = math.atan2(pinky[1]-index[1], pinky[0]-index[0])
+    # Palm direction stays meaningful when fingers curl into a fist. Use MCP
+    # bases, not fingertips, and compensate normalized image coordinates.
+    if not math.isfinite(aspect_ratio) or aspect_ratio <= 0:
+        raise ValueError('Invalid camera aspect ratio.')
+    dx = (sum(image_points[i][0] for i in (5,9,13,17))/4-wrist[0])*aspect_ratio
+    dy = sum(image_points[i][1] for i in (5,9,13,17))/4-wrist[1]
+    if math.hypot(dx,dy) < 0.02:
+        raise ValueError('Palm direction is unreliable. Show the palm clearly.')
+    # Upright = 0, image-left = +pi/2, image-right = -pi/2.
+    roll = math.atan2(-dx,-dy)
     pitch = math.atan2(normal[1], math.hypot(normal[0], normal[2]))
     yaw = math.atan2(normal[0], normal[2])
     return (center[0], center[1], math.log(width), roll, pitch, yaw)
@@ -129,7 +137,7 @@ def gesture_description(sample, mode=MODES[0]):
     count = finger_count(sample)
     if count is None:
         return 'Unclear finger count · hold a clearer gesture'
-    return ('Fist' if count == 0 else f'{count} finger'+('s' if count != 1 else ''))+f' → J{count+1} · twist to move'
+    return ('Fist' if count == 0 else f'{count} finger'+('s' if count != 1 else ''))+f' → J{count+1} · upright 0°, left +limit, right −limit'
 
 
 class GestureMapper(MirrorMapper):
@@ -147,7 +155,7 @@ class GestureMapper(MirrorMapper):
         self.candidate = self.selected
         self.candidate_since = neutral.captured_at
         self.roll_origin = neutral.features[self.axis]
-        self.joint_origin = self.anchor[self.selected] if self.selected is not None else 0
+        self.max_rate = 60.0  # preview; the hardware controller sets 3°/s while live
 
     def target(self,sample,now):
         if not sample.valid(now) or sample.handedness != self.neutral.handedness or len(sample.extensions) != 5:
@@ -164,18 +172,18 @@ class GestureMapper(MirrorMapper):
                 self.candidate_since = now
             elif now-self.candidate_since >= 0.3:
                 self.selected = count
-                self.roll_origin = sample.features[self.axis]
-                self.joint_origin = self.filtered[count]
+                # Keep the SAME straight-hand reference for every joint.
+                # Selection changes are slewed, never applied as angle jumps.
         if self.selected is not None:
             delta = sample.features[self.axis]-self.roll_origin
             delta = math.atan2(math.sin(delta),math.cos(delta))
             joint = self.selected
-            self.targets[joint] = self.joint_origin+math.degrees(delta)*self.signs[joint]*self.sensitivity
+            fraction = max(-1.0,min(1.0,delta/(math.pi/2)*self.sensitivity))
+            self.targets[joint] = fraction*LIMITS[joint]*self.signs[joint]
         for i in range(6):
-            desired = max(self.anchor[i]-10,min(self.anchor[i]+10,self.targets[i]))
-            desired = max(-LIMITS[i],min(LIMITS[i],desired))
+            desired = max(-LIMITS[i],min(LIMITS[i],self.targets[i]))
             if abs(desired-self.filtered[i]) < 0.25:
                 desired = self.filtered[i]
             step = (desired-self.filtered[i])*(1-math.exp(-dt/0.25))
-            self.filtered[i] += max(-3*dt,min(3*dt,step))
+            self.filtered[i] += max(-self.max_rate*dt,min(self.max_rate*dt,step))
         return angles(self.filtered)

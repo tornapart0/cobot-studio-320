@@ -1,3 +1,12 @@
+## 2026-11-06 · Full-range hand direction
+
+- Straight hand maps to 0°; left/right map to the selected joint’s software limits.
+- Finger count keeps selecting J1–J6 using one shared straight-hand reference.
+- Palm direction uses wrist-to-knuckle geometry and camera aspect correction.
+- Preview responds at up to 60°/s; physical targets retain a 3°/s bound.
+- Simulation switch, explicit physical Start, measured feedback and Stop remain.
+- Physical operation of this iteration remains unvalidated.
+
 # Cobot Sim & Push · myCobot 320 M5 2022
 
 A local Mac desktop application for setting start/end poses, training a joint-move order, previewing it and sending it over USB. Green/black interface, default system fonts, labeled 3D joint viewer, Python motion editor and measured feedback. The viewer opens in a side view with rigid right-angle link bodies and curved positive-rotation arrows; drag to orbit.

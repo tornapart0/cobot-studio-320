@@ -100,21 +100,28 @@ class Controller:
                     raise ValueError(f'Robot reports {label} is off. Check the physical stop and vendor motor-enable procedure.')
             measured_start = self.read()
             anchor = angles(reference_pose) if reference_pose is not None else measured_start
-            if any(abs(a-b)>10 for a,b in zip(measured_start,anchor)):
+            full_range = isinstance(mapping_state,GestureMapper) or mapping_mode != 'palm'
+            if not full_range and any(abs(a-b)>10 for a,b in zip(measured_start,anchor)):
                 raise ValueError('Arm moved outside the calibrated mirror range. Read joints and calibrate again.')
             mapper = mapping_state or (MirrorMapper(neutral,anchor,sensitivity,signs) if mapping_mode == 'palm'
                       else GestureMapper(neutral,anchor,sensitivity,signs,mapping_mode))
             if mapper.anchor != anchor:
                 raise ValueError('Preview and hardware mirror references differ. Recalibrate.')
             mapper.filtered = list(measured_start)
+            if full_range:
+                mapper.max_rate = 3.0
+                # Hold non-selected joints at actual hardware positions, rather
+                # than accidentally moving them toward an earlier preview.
+                mapper.targets = list(measured_start)
+            mapper.last_time = None
             outstanding = None
             command_count = 0
             while hold.is_set() and not cancel.is_set():
                 measured = self.read()
                 report(measured)
-                if any(abs(a-b)>12 for a,b in zip(measured,anchor)):
+                if not full_range and any(abs(a-b)>12 for a,b in zip(measured,anchor)):
                     raise ValueError('Mirror travel envelope exceeded. Stop and recalibrate.')
-                if any(not use and abs(a-b)>2 for use,a,b in zip(enabled,measured,anchor)):
+                if any(not use and abs(a-b)>2 for use,a,b in zip(enabled,measured,measured_start)):
                     raise ValueError('An inactive joint moved unexpectedly.')
                 target = mapper.target(camera.sample(),time.monotonic())
                 if outstanding:
@@ -141,6 +148,9 @@ class Controller:
                 cancel.wait(0.1)
             return 'Mirror stopped. Start live mirroring again when ready.'
         finally:
+            if isinstance(mapping_state,GestureMapper):
+                mapping_state.max_rate = 60.0
+                mapping_state.last_time = None
             hold.clear()
             self.robot.stop()
 
