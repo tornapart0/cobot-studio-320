@@ -41,7 +41,7 @@ def main():
                 stamp = max(previous+1,int(captured*1000))
                 previous = stamp
                 result = detector.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB,data=rgb),stamp)
-                packet = {'kind':'frame', 'captured_at':captured, 'confidence':0, 'handedness':'', 'features':None}
+                packet = {'kind':'frame', 'captured_at':captured, 'confidence':0, 'handedness':'', 'features':None, 'aspect_ratio':frame.shape[1]/frame.shape[0]}
                 if result.hand_landmarks:
                     points = [(p.x,p.y,p.z) for p in result.hand_landmarks[0]]
                     world = [(p.x,p.y,p.z) for p in result.hand_world_landmarks[0]]

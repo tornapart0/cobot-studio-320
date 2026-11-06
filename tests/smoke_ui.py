@@ -87,7 +87,7 @@ assert app.mirror_run.is_set() and len(actions) == 1
 assert not hasattr(app,'hold_button')
 actions[0]()
 assert calls[0]['mapping_state'] is mapper
-assert calls[0]['mapping_mode'] == 'Finger count + twist'
+assert calls[0]['mapping_mode'] == 'Wrist camera follow'
 app.robot_output.set(False)
 app.change_mirror_output()
 assert not app.mirror_run.is_set()

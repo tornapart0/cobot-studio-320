@@ -13,7 +13,7 @@ from .viewer import ArmViewer, NAMES
 from .playback import sample
 from .hardware import Controller, usb_serial_port
 from .camera import Camera, setup_runtime
-from .mirror import GestureMapper, MODES, COUNT_LABELS, gesture_description
+from .follow import FollowMapper
 from .rl import load_policy, policy_plan
 from .sequential import train_route, SCHEMA
 
@@ -41,11 +41,13 @@ class App:
         self.camera_index = tk.StringVar(value='0')
         self.camera_rotation = tk.StringVar(value='0')
         self.mirror_sensitivity = tk.StringVar(value='1.0')
-        self.mirror_mode = tk.StringVar(value=MODES[0])
+        self.mirror_mode = tk.StringVar(value='Wrist camera follow')
+        self.mount_rpy = [tk.StringVar(value='0') for _ in range(3)]
+        self.mount_xyz = [tk.StringVar(value='0') for _ in range(3)]
+        self.palm_distance = tk.StringVar(value='350')
+        self.follow_distance = tk.BooleanVar(value=False)
         self.robot_output = tk.BooleanVar(value=False)
-        self.rotation_axis = tk.StringVar(value='Roll')
-        self.gesture_status = tk.StringVar(value='Show a clear hand to select a joint.')
-        self.mapping_labels = [tk.StringVar(value=f'J{i+1} · {label}') for i,label in enumerate(COUNT_LABELS)]
+        self.gesture_status = tk.StringVar(value='Show a clear palm to follow.')
         self.mirror_status = tk.StringVar(value='Camera off · preview only')
         self.mirror_joints = [tk.BooleanVar(value=True) for i in range(6)]
         self.mirror_invert = [tk.BooleanVar(value=False) for _ in range(6)]
@@ -263,8 +265,8 @@ class App:
         window = canvas.create_window((0,0),window=body,anchor='nw')
         body.bind('<Configure>',lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>',lambda event: canvas.itemconfigure(window,width=event.width))
-        ttk.Label(body,text='Local hand mirror · MediaPipe').pack(anchor='w')
-        ttk.Label(body,text='Fist selects J1; 1–5 fingers select J2–J6.\nStraight hand = 0°. Point left = positive limit; right = negative limit. Keep the count steady to select a joint.',wraplength=350).pack(anchor='w',pady=6)
+        ttk.Label(body,text='Wrist camera · palm following').pack(anchor='w')
+        ttk.Label(body,text='Move your palm and the whole arm follows to keep it centered. Rotate your palm to align the wrist. Keep the palm open; finger counts no longer select joints.',wraplength=350).pack(anchor='w',pady=6)
         ttk.Label(body,textvariable=self.gesture_status,wraplength=350).pack(anchor='w',pady=6)
         ttk.Button(body,text='Install camera support',command=self.install_camera).pack(anchor='w',pady=4)
         camera_row = ttk.Frame(body)
@@ -280,30 +282,36 @@ class App:
         self.camera_view = ttk.Label(body,text='Camera preview appears here',anchor='center')
         self.camera_view.pack(fill='x',pady=8)
         ttk.Label(body,textvariable=self.mirror_status,wraplength=350).pack(anchor='w',pady=4)
-        ttk.Button(body,text='Set straight hand as 0°',command=self.calibrate_mirror).pack(anchor='w',pady=4)
+        ttk.Button(body,text='Set palm size and rotation reference',command=self.calibrate_mirror).pack(anchor='w',pady=4)
         sensitivity = ttk.Frame(body)
         sensitivity.pack(fill='x',pady=4)
         ttk.Label(sensitivity,text='Sensitivity ×').pack(side='left')
         ttk.Spinbox(sensitivity,from_=0.2,to=2,increment=0.1,textvariable=self.mirror_sensitivity,width=5).pack(side='left',padx=6)
-        ttk.Label(body,text='Preview and arm use the same selected joints.').pack(anchor='w',pady=6)
-        for i,label in enumerate(self.mapping_labels):
-            row = ttk.Frame(body)
-            row.pack(fill='x',pady=2)
-            ttk.Checkbutton(row,textvariable=label,variable=self.mirror_joints[i]).pack(side='left')
-            ttk.Checkbutton(row,text='Invert',variable=self.mirror_invert[i]).pack(side='right')
+        ttk.Label(body,text='Camera mounting · relative to the tool frame',wraplength=350).pack(anchor='w',pady=6)
+        ttk.Label(body,text='Camera axes: X = image right, Y = image down, Z = lens forward. Enter its measured mount angles/offsets. Zero assumes camera axes match the tool frame.',wraplength=350).pack(anchor='w')
+        for title,variables in (('Roll / pitch / yaw (°)',self.mount_rpy),('X / Y / Z offset (mm)',self.mount_xyz)):
+            row=ttk.Frame(body)
+            row.pack(fill='x',pady=4)
+            ttk.Label(row,text=title).pack(side='left')
+            for variable in variables:
+                ttk.Entry(row,textvariable=variable,width=5).pack(side='left',padx=2)
+        row=ttk.Frame(body)
+        row.pack(fill='x',pady=4)
+        ttk.Label(row,text='Approximate palm distance (mm)').pack(side='left')
+        ttk.Entry(row,textvariable=self.palm_distance,width=6).pack(side='left',padx=4)
+        ttk.Checkbutton(body,text='Follow distance using apparent palm size (approximate)',variable=self.follow_distance).pack(anchor='w',pady=4)
+        ttk.Label(body,text='Distance following starts off: hand tilt can look like a distance change. Changing settings requires a new reference.',wraplength=350).pack(anchor='w')
         ttk.Checkbutton(body,text='Send hand movements to robot (off = simulation only)',variable=self.robot_output,command=self.change_mirror_output).pack(anchor='w',pady=6)
-        ttk.Label(body,text='Rotation axis · Roll matches your reference photos').pack(anchor='w')
-        ttk.Combobox(body,textvariable=self.rotation_axis,values=('Roll','Tilt','Turn'),state='readonly',width=12).pack(anchor='w',pady=4)
         ttk.Label(body,text='TIP WARNING: secure the base before moving. Arm mass ≈3–3.36 kg; payload limit 1 kg includes camera, mount and cables. Total mass does not establish tipping stability; link mass distribution and your mounting footprint are unknown.',wraplength=350).pack(anchor='w',pady=8)
-        self.enable_mirror_button = ttk.Button(body,text='Start live robot mirroring…',command=self.enable_mirror)
+        self.enable_mirror_button = ttk.Button(body,text='Start live hand following…',command=self.enable_mirror)
         self.enable_mirror_button.pack(anchor='w',pady=8)
         ttk.Button(body,text='Stop mirroring',command=self.stop).pack(anchor='w',pady=4)
-        ttk.Label(body,text='Finger count selects one joint; twist turns it while the others hold. Mirroring continues until Stop or tracking loss. Check preview directions; the wrist camera also moves. Left/right hand positions now request the selected joint’s full software range. Preview follows at up to 60°/s; hardware at up to 3°/s and speed 3%. Stop mirroring, Escape or STOP ends movement. Tracking loss disarms the session.',wraplength=350).pack(anchor='w',pady=8)
+        ttk.Label(body,text='Preview uses a virtual wrist camera; live control uses fresh measured joint positions and image feedback. Motion is bounded by joint limits, 3°/s targets and small physical steps. Stop or lost tracking ends robot output. Camera alignment and physical following need validation on your mount.',wraplength=350).pack(anchor='w',pady=8)
 
     def mirror_settings(self):
-        return (float(self.mirror_sensitivity.get()),
-                tuple(-1 if v.get() else 1 for v in self.mirror_invert),
-                self.mirror_mode.get(),tuple(v.get() for v in self.mirror_joints),self.rotation_axis.get())
+        return (float(self.mirror_sensitivity.get()),tuple(float(v.get()) for v in self.mount_rpy),
+                tuple(float(v.get()) for v in self.mount_xyz),float(self.palm_distance.get()),
+                self.follow_distance.get(),int(self.camera_rotation.get()))
 
     def install_camera(self):
         def install():
@@ -336,11 +344,10 @@ class App:
                 raise ValueError('Stop movement before calibrating.')
             self.mirror_enabled = False
             self.mirror_neutral = self.camera.sample()
-            signs = tuple(-1 if variable.get() else 1 for variable in self.mirror_invert)
-            sensitivity = float(self.mirror_sensitivity.get())
-            self.mirror_mapper = GestureMapper(self.mirror_neutral,self.current,sensitivity,signs,self.mirror_mode.get(),rotation_axis=self.rotation_axis.get())
+            sensitivity,rpy,xyz,distance,depth,image_rotation=self.mirror_settings()
+            self.mirror_mapper = FollowMapper(self.mirror_neutral,self.current,sensitivity,rpy,xyz,distance,depth,image_rotation=image_rotation)
             self.mirror_config = self.mirror_settings()
-            self.mirror_status.set('Straight hand saved as 0° · preview follows full joint range. Robot output is separate.')
+            self.mirror_status.set('Palm reference saved · move your hand to preview following.')
         self.guard(calibrate)
 
     def mirror_tick(self):
@@ -356,7 +363,7 @@ class App:
         try:
             sample = self.camera.sample()
             tracking = True
-            self.gesture_status.set(gesture_description(sample,self.mirror_mode.get()))
+            self.gesture_status.set('Palm tracked · move left/right/up/down or rotate')
         except ValueError:
             self.gesture_status.set('No clear hand · movement paused')
         if self.mirror_mapper and not self.busy:
@@ -370,7 +377,7 @@ class App:
                     self.root.after_cancel(self.animation)
                     self.animation = None
                 self.viewer.set_pose(target)
-                self.mirror_status.set('Simulation only · hand controls preview' if not self.robot_output.get() else 'Robot output selected · press Start live robot mirroring')
+                self.mirror_status.set(('Simulation · ' if not self.robot_output.get() else 'Robot output selected · press Start · ')+self.mirror_mapper.status)
             except ValueError as exc:
                 self.mirror_run.clear()
                 self.mirror_enabled = False
@@ -409,7 +416,7 @@ class App:
                 raise ValueError('Mapping settings changed. Calibrate again before enabling.')
             if not any(variable.get() for variable in self.mirror_joints):
                 raise ValueError('Select at least one hardware joint.')
-            if messagebox.askyesno('Enable hand mirroring', 'Start full-range mirroring on the selected joints?\nStraight hand requests 0°. Left/right request the joint limits. Clear the whole arm sweep. Motion continues until Stop or tracking loss at up to 3°/s. Keep the physical stop ready.'):
+            if messagebox.askyesno('Enable hand mirroring', 'Start wrist-camera hand following?\nConfirm the camera mount settings match the robot. The arm moves to center your palm and align its rotation. Start with small hand motions and check directions. Stop or tracking loss ends motion. Keep the physical stop ready.'):
                 self.mirror_enabled = True
                 self.start_mirror()
         self.guard(enable)

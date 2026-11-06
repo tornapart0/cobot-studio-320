@@ -1,3 +1,12 @@
+## v0.6.0-beta.1 · Wrist-camera palm following
+
+- Replaced finger-selected joints in the UI with coordinated visual following.
+- Added tool-to-camera mount angles/offsets and approximate palm distance.
+- Added optional palm-size distance following, off by default.
+- Simulation includes a virtual moving camera; real control uses fresh measured angles.
+- Retained explicit Start/Stop and simulation-only default; tightened small-command feedback checks.
+- Tested convergence, mount transforms, tracking loss and stalled feedback with synthetic input and fake hardware. Actual robot control remains unvalidated.
+
 ## 2026-11-06 · Full-range hand direction
 
 - Straight hand maps to 0°; left/right map to the selected joint’s software limits.

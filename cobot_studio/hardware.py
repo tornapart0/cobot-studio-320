@@ -101,16 +101,21 @@ class Controller:
     def mirror(self, camera, neutral, hold, cancel, report, enabled, sensitivity=1.0, signs=(1,)*6, progress=lambda state: None, reference_pose=None, mapping_mode='palm', mapping_state=None):
         """Continuous explicit-start session; one outstanding joint at a time."""
         from .mirror import MirrorMapper, GestureMapper
+        from .follow import FollowMapper
         if not self.robot or len(enabled) != 6 or not any(enabled):
             raise ValueError('Connect the arm and select at least one mirror joint.')
+        following = False
+        last_follow_pose = None
         try:
             for method,label in (('is_power_on','motor power'), ('is_all_servo_enable','servo enable')):
                 query = getattr(self.robot,method,None)
                 if query is not None and query() == 0:
                     raise ValueError(f'Robot reports {label} is off. Check the physical stop and vendor motor-enable procedure.')
             measured_start = self.read()
+            last_follow_pose = measured_start
             anchor = angles(reference_pose) if reference_pose is not None else measured_start
-            full_range = isinstance(mapping_state,GestureMapper) or mapping_mode != 'palm'
+            following = isinstance(mapping_state,FollowMapper)
+            full_range = isinstance(mapping_state,(GestureMapper,FollowMapper)) or mapping_mode != 'palm'
             if not full_range and any(abs(a-b)>10 for a,b in zip(measured_start,anchor)):
                 raise ValueError('Arm moved outside the calibrated mirror range. Read joints and calibrate again.')
             mapper = mapping_state or (MirrorMapper(neutral,anchor,sensitivity,signs) if mapping_mode == 'palm'
@@ -118,25 +123,30 @@ class Controller:
             if mapper.anchor != anchor:
                 raise ValueError('Preview and hardware mirror references differ. Recalibrate.')
             mapper.filtered = list(measured_start)
+            if following:
+                mapper.hardware = True
             if full_range:
                 mapper.max_rate = 3.0
                 # Hold non-selected joints at actual hardware positions, rather
                 # than accidentally moving them toward an earlier preview.
-                mapper.targets = list(measured_start)
+                if not following:
+                    mapper.targets = list(measured_start)
             mapper.last_time = None
             outstanding = None
             command_count = 0
             while hold.is_set() and not cancel.is_set():
                 measured = self.read()
+                last_follow_pose = measured
                 report(measured)
                 if not full_range and any(abs(a-b)>12 for a,b in zip(measured,anchor)):
                     raise ValueError('Mirror travel envelope exceeded. Stop and recalibrate.')
                 if any(not use and abs(a-b)>2 for use,a,b in zip(enabled,measured,measured_start)):
                     raise ValueError('An inactive joint moved unexpectedly.')
-                target = mapper.target(camera.sample(),time.monotonic())
+                target = (mapper.target(camera.sample(),time.monotonic(),pose=measured) if following
+                          else mapper.target(camera.sample(),time.monotonic()))
                 if outstanding:
                     joint,value,issued = outstanding
-                    if abs(measured[joint]-value)>1:
+                    if abs(measured[joint]-value)>(0.08 if following else 1):
                         if time.monotonic()-issued > 2:
                             raise TimeoutError('Mirror joint feedback is not following its command.')
                         cancel.wait(0.1)
@@ -144,7 +154,7 @@ class Controller:
                     outstanding = None
                 candidates = [(abs(target[i]-measured[i]),i) for i in range(6) if enabled[i]]
                 error,joint = max(candidates)
-                if error > 0.3:
+                if error > (0.1 if following else 0.3):
                     value = measured[joint]+max(-0.5,min(0.5,target[joint]-measured[joint]))
                     camera.sample()  # Recheck tracking freshness immediately before a command.
                     if not hold.is_set() or cancel.is_set():
@@ -158,8 +168,13 @@ class Controller:
                 cancel.wait(0.1)
             return 'Mirror stopped. Start live mirroring again when ready.'
         finally:
-            if isinstance(mapping_state,GestureMapper):
-                mapping_state.max_rate = 60.0
+            if isinstance(mapping_state,(GestureMapper,FollowMapper)):
+                mapping_state.max_rate = 30.0 if following else 60.0
+                if following:
+                    mapping_state.hardware = False
+                    if last_follow_pose is not None:
+                        mapping_state.anchor = tuple(last_follow_pose)
+                        mapping_state.filtered = list(last_follow_pose)
                 mapping_state.last_time = None
             hold.clear()
             self.robot.stop()

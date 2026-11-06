@@ -85,7 +85,7 @@ class Camera:
         packet,error = self.packet()
         if error or not packet or packet.get('features') is None:
             raise ValueError(error or 'Show one clear hand to the camera.')
-        sample = HandSample(packet['captured_at'],tuple(packet['features']),packet['confidence'],packet['handedness'],tuple(packet.get('extensions',())))
+        sample = HandSample(packet['captured_at'],tuple(packet['features']),packet['confidence'],packet['handedness'],tuple(packet.get('extensions',())),packet.get('aspect_ratio',4/3))
         if not sample.valid(time.monotonic()):
             raise ValueError('Tracking stale or uncertain. Recalibrate with a clear palm.')
         return sample

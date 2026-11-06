@@ -18,8 +18,10 @@ class HandSample:
     handedness: str
     extensions: tuple = ()  # thumb, index, middle, ring, little; values 0–1
 
+    aspect_ratio: float = 4/3
+
     def valid(self, now):
-        return (len(self.features) == 6 and all(math.isfinite(x) for x in self.features)
+        return (math.isfinite(self.aspect_ratio) and .2 <= self.aspect_ratio <= 5 and len(self.features) == 6 and all(math.isfinite(x) for x in self.features)
                 and math.isfinite(self.captured_at) and 0 <= now-self.captured_at <= STALE_SECONDS
                 and math.isfinite(self.confidence) and self.confidence >= 0.8
                 and self.handedness in ('Left','Right')
@@ -37,7 +39,7 @@ def hand_features(image_points, world_points, aspect_ratio=1.0):
     if any(len(p) != 3 or not all(math.isfinite(v) for v in p) for p in image_points+world_points):
         raise ValueError('Invalid hand landmarks.')
     wrist, index, pinky = image_points[0], image_points[5], image_points[17]
-    width = math.hypot(index[0]-pinky[0], index[1]-pinky[1])
+    width = math.hypot((index[0]-pinky[0])*aspect_ratio, index[1]-pinky[1])
     if width < 0.025:
         raise ValueError('Hand too small or edge-on. Show your palm to the camera.')
     center = [sum(image_points[i][j] for i in (0,5,9,13,17))/5 for j in range(2)]

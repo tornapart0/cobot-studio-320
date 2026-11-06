@@ -17,13 +17,26 @@ cobot-studio
 
 The launcher uses the code in this folder, so updates apply when you next open the app. It never connects or moves the arm automatically. This is source with a launcher, not a standalone bundled Python installation.
 
-## Camera mirror mode
+## Wrist-camera hand following
 
-**Fist → J1; 1, 2, 3, 4, 5 fingers → J2, J3, J4, J5, J6.** Set the straight hand as zero. Keep a finger count steady for about 0.3 seconds to select a joint; point the hand left for its positive limit, right for its negative limit, and straight for 0°. The other joints hold position. Ambiguous counts freeze movement; all joints share the same straight-hand reference, with smooth movement when changing counts. Simulation output defaults off for hardware; enable the robot-output switch and Start explicitly.
+One webcam stays on the robot wrist. An open palm controls coordinated arm
+movement: the robot centers the palm in its image and aligns palm rotation.
+Finger counts no longer select joints in the app. Optional palm-size following
+controls approximate distance; it starts off because hand tilt affects size.
 
-After camera setup and neutral calibration, **Start live robot mirroring** runs continuously until **Stop mirroring**, STOP, Escape or tracking/connection loss. There is no hold-to-run control or individual-fingers mode. All six joints are enabled by default and can be deselected. Nothing moves automatically on camera start or app launch. See [Mirror setup and limitations](docs/MIRROR.md).
+Start the camera in **Mirror**, enter its mounting angles and offsets relative
+to the tool frame, and choose **Set palm size and rotation reference**. Move your
+hand to test the simulation. The preview models a virtual moving wrist camera,
+so stationary input settles rather than causing continuous drift.
 
-The backend is local MediaPipe. This is camera-relative gesture control, not measured human 6-DOF or a calibrated world-frame imitation system. The wrist camera itself moves with the robot.
+Robot output defaults off. Connect/read joints, set the reference at the actual
+starting pose, check the workspace acknowledgment, enable robot output, then
+**Start live hand following**. Stop, Escape, camera failure, stale tracking or
+feedback failure ends physical control. No hold-to-run is required.
+
+This is approximate eye-in-hand visual servoing, not recovered human 6-DOF or
+anatomical arm imitation. Camera mounting must match the actual assembly;
+physical behavior remains unvalidated. See [setup and limitations](docs/MIRROR.md).
 
 ## A → B workflow
 
