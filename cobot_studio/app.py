@@ -4,13 +4,14 @@ import base64
 import queue
 import threading
 import time
+import traceback
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from .core import parse_program, preview, program, angles, Move, JointMove, LIMITS, target_plan
 from .viewer import ArmViewer, NAMES
 from .playback import sample
-from .hardware import Controller
+from .hardware import Controller, usb_serial_port
 from .camera import Camera, setup_runtime
 from .mirror import GestureMapper, MODES, COUNT_LABELS, gesture_description
 from .rl import load_policy, policy_plan
@@ -552,6 +553,7 @@ class App:
                 result = action()
                 self.events.put(('done', result))
             except Exception as exc:
+                traceback.print_exc()
                 self.events.put(('error', str(exc)))
         threading.Thread(target=work, daemon=True).start()
 
@@ -594,9 +596,9 @@ class App:
 
     def scan(self):
         import glob
-        ports = sorted(glob.glob('/dev/cu.*'))
+        ports = sorted(glob.glob('/dev/cu.*'),key=lambda port:(not usb_serial_port(port),port))
         self.ports['values'] = ports
-        if ports and not self.port.get():
+        if ports and (self.port.get() not in ports or (not usb_serial_port(self.port.get()) and usb_serial_port(ports[0]))):
             self.port.set(ports[0])
 
     def connect(self):
@@ -765,6 +767,7 @@ class App:
         try:
             action()
         except Exception as exc:
+            traceback.print_exc()
             self.note('Error: '+str(exc))
 
 

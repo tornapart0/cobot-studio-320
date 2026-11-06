@@ -5,6 +5,11 @@ from .kinematics import endpoint
 import math
 
 
+def usb_serial_port(port):
+    name = port.lower()
+    return name.startswith('/dev/cu.') and any(label in name for label in ('usbserial','usbmodem','wchusb','slab_usb'))
+
+
 class Controller:
     def __init__(self, factory=None):
         self.robot = None
@@ -15,6 +20,8 @@ class Controller:
             raise ValueError('Already connected.')
         if not port.startswith('/dev/cu.'):
             raise ValueError('Choose a Mac /dev/cu.* USB serial port.')
+        if self.factory is None and not usb_serial_port(port):
+            raise ValueError('Select the robot USB port (usbserial or usbmodem), not Bluetooth, headphones or debug-console. Refresh ports after plugging in the USB cable.')
         if baud not in (115200, 1000000):
             raise ValueError('Confirm 115200 or 1000000 against your firmware documentation.')
         if self.factory is None:
@@ -22,7 +29,10 @@ class Controller:
             factory = MyCobot320
         else:
             factory = self.factory
-        device = factory(port, baud, timeout=0.2)
+        try:
+            device = factory(port, baud, timeout=0.2)
+        except Exception as exc:
+            raise ValueError(f'Could not open {port} at {baud} baud: {exc}. Check the USB cable, close other robot-control apps, and confirm the firmware baud rate.') from exc
         try:
             angles(device.get_angles())
         except Exception:
