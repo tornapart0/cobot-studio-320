@@ -125,3 +125,18 @@ class FollowTests(unittest.TestCase):
                 controller.mirror(Camera(),hand(),run,Cancel(),lambda q:None,(True,)*6,mapping_state=mapper)
         self.assertEqual(len(controller.robot.sent),1)
         self.assertTrue(controller.robot.stopped)
+
+    def test_center_only_ignores_size_and_roll_and_reduces_position_error(self):
+        mapper = FollowMapper(hand(), (0, -30, 50, 0, 0, 0), center_only=True)
+        for step in range(20):
+            now = step / 10
+            self.assertEqual(mapper.target(hand(now, size=.3, roll=.5), now), mapper.anchor)
+
+        observation = hand(x=.6, y=.57, size=.2, roll=.4)
+        point, direction = mapper.observation(observation, mapper.anchor)
+        for step in range(100):
+            now = 2 + step / 10
+            pose = mapper.target(hand(now, x=.6, y=.57, size=.2, roll=.4), now)
+        x, y, _, _ = mapper.project(point, direction, pose, 4/3)
+        self.assertLess(math.hypot(x-.5, y-.5), .025)
+        self.assertGreater(sum(abs(a-b) > .05 for a,b in zip(pose, mapper.anchor)), 1)

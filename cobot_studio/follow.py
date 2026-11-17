@@ -35,7 +35,7 @@ def solve(matrix, vector):
 
 
 class FollowMapper:
-    def __init__(self,neutral,anchor,sensitivity=1.0,mount_rpy=(0,0,0),mount_xyz=(0,0,0),distance=350,follow_distance=True,enabled=(True,)*6,image_rotation=0):
+    def __init__(self,neutral,anchor,sensitivity=1.0,mount_rpy=(0,0,0),mount_xyz=(0,0,0),distance=350,follow_distance=True,enabled=(True,)*6,image_rotation=0,center_only=False):
         if not neutral.valid(neutral.captured_at):
             raise ValueError('Show one clear palm before setting the following reference.')
         self.anchor=angles(anchor)
@@ -55,6 +55,7 @@ class FollowMapper:
         self.offset=tuple(mount_xyz)
         self.distance=distance
         self.follow_distance=follow_distance
+        self.feature_count = 2 if center_only else 4
         self.enabled=tuple(enabled)
         self.filtered=list(self.anchor)
         self.max_rate=30.0
@@ -107,7 +108,9 @@ class FollowMapper:
             error[2]=0
         thresholds=(.015,.015,.04,.035)
         error=[0 if abs(v)<thresholds[i] else max(-.5,min(.5,v)) for i,v in enumerate(error)]
-        jacobian=[[0.0]*6 for _ in range(4)]
+        error = error[:self.feature_count]
+        feature_rows = range(self.feature_count)
+        jacobian=[[0.0]*6 for _ in feature_rows]
         for j in range(6):
             if not self.enabled[j]:
                 continue
@@ -115,13 +118,13 @@ class FollowMapper:
             shifted=list(q)
             shifted[j]+=delta
             projected=self.project(point,direction,shifted,sample.aspect_ratio)
-            for i in range(4):
+            for i in feature_rows:
                 difference=projected[i]-features[i]
                 jacobian[i][j]=(wrap(difference) if i==3 else difference)/delta
         # Keep the distance feature constrained at zero velocity when disabled.
-        normal=[[sum(jacobian[i][j]*jacobian[k][j] for j in range(6))+(0.00002 if i==k else 0) for k in range(4)] for i in range(4)]
+        normal=[[sum(jacobian[i][j]*jacobian[k][j] for j in range(6))+(0.00002 if i==k else 0) for k in feature_rows] for i in feature_rows]
         solution=solve(normal,[-1.5*self.sensitivity*v for v in error])
-        velocity=[sum(jacobian[i][j]*solution[i] for i in range(4)) for j in range(6)]
+        velocity=[sum(jacobian[i][j]*solution[i] for i in feature_rows) for j in range(6)]
         scale=max(1,max(abs(v) for v in velocity)/self.max_rate)
         base=self.filtered if self.hardware else q
         desired=[base[j]+velocity[j]/scale*dt for j in range(6)]

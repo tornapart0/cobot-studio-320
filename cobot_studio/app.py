@@ -45,6 +45,7 @@ class App:
         self.mount_rpy = [tk.StringVar(value='0') for _ in range(3)]
         self.mount_xyz = [tk.StringVar(value='0') for _ in range(3)]
         self.palm_distance = tk.StringVar(value='350')
+        self.follow_behavior = tk.StringVar(value='Palm pose')
         self.follow_distance = tk.BooleanVar(value=False)
         self.robot_output = tk.BooleanVar(value=False)
         self.gesture_status = tk.StringVar(value='Show a clear palm to follow.')
@@ -299,6 +300,10 @@ class App:
         row.pack(fill='x',pady=4)
         ttk.Label(row,text='Approximate palm distance (mm)').pack(side='left')
         ttk.Entry(row,textvariable=self.palm_distance,width=6).pack(side='left',padx=4)
+        ttk.Label(body,text='Following mode').pack(anchor='w')
+        ttk.Combobox(body,textvariable=self.follow_behavior,
+                     values=('Palm pose','Center palm'),state='readonly').pack(anchor='w',pady=4)
+        ttk.Label(body,text='Center palm uses all six joints to center your hand. Rotation and distance are free.',wraplength=350).pack(anchor='w')
         ttk.Checkbutton(body,text='Follow distance using apparent palm size (approximate)',variable=self.follow_distance).pack(anchor='w',pady=4)
         ttk.Label(body,text='Distance following starts off: hand tilt can look like a distance change. Changing settings requires a new reference.',wraplength=350).pack(anchor='w')
         ttk.Checkbutton(body,text='Send hand movements to robot (off = simulation only)',variable=self.robot_output,command=self.change_mirror_output).pack(anchor='w',pady=6)
@@ -311,7 +316,8 @@ class App:
     def mirror_settings(self):
         return (float(self.mirror_sensitivity.get()),tuple(float(v.get()) for v in self.mount_rpy),
                 tuple(float(v.get()) for v in self.mount_xyz),float(self.palm_distance.get()),
-                self.follow_distance.get(),int(self.camera_rotation.get()))
+                self.follow_distance.get(),int(self.camera_rotation.get()),
+                self.follow_behavior.get() == 'Center palm')
 
     def install_camera(self):
         def install():
@@ -344,8 +350,8 @@ class App:
                 raise ValueError('Stop movement before calibrating.')
             self.mirror_enabled = False
             self.mirror_neutral = self.camera.sample()
-            sensitivity,rpy,xyz,distance,depth,image_rotation=self.mirror_settings()
-            self.mirror_mapper = FollowMapper(self.mirror_neutral,self.current,sensitivity,rpy,xyz,distance,depth,image_rotation=image_rotation)
+            sensitivity,rpy,xyz,distance,depth,image_rotation,center_only=self.mirror_settings()
+            self.mirror_mapper = FollowMapper(self.mirror_neutral,self.current,sensitivity,rpy,xyz,distance,depth,image_rotation=image_rotation,center_only=center_only)
             self.mirror_config = self.mirror_settings()
             self.mirror_status.set('Palm reference saved · move your hand to preview following.')
         self.guard(calibrate)
@@ -416,7 +422,7 @@ class App:
                 raise ValueError('Mapping settings changed. Calibrate again before enabling.')
             if not any(variable.get() for variable in self.mirror_joints):
                 raise ValueError('Select at least one hardware joint.')
-            if messagebox.askyesno('Enable hand mirroring', 'Start wrist-camera hand following?\nConfirm the camera mount settings match the robot. The arm moves to center your palm and align its rotation. Start with small hand motions and check directions. Stop or tracking loss ends motion. Keep the physical stop ready.'):
+            if messagebox.askyesno('Enable hand mirroring', 'Start wrist-camera hand following?\nConfirm the camera mount settings match the robot. The arm moves to center your palm using the selected following mode. Start with small hand motions and check directions. Stop or tracking loss ends motion. Keep the physical stop ready.'):
                 self.mirror_enabled = True
                 self.start_mirror()
         self.guard(enable)
